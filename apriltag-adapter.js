@@ -12,10 +12,9 @@ class AprilTagAdapter {
     this.intervalMs=55;
   }
   async init(){
-    if(!window.CV) throw new Error('Thiếu thư viện CV.js — detector chưa khởi tạo.');
-    if(!window.AR || !window.AR.Detector) throw new Error('Thiếu thư viện js-aruco2 — detector chưa khởi tạo.');
+    if(!window.AR || !window.AR.Detector) throw new Error('Chưa tải được bộ nhận dạng AprilTag.');
     if(!window.AR.DICTIONARIES || !window.AR.DICTIONARIES.APRILTAG_36h11){
-      throw new Error('Thiếu dictionary APRILTAG_36h11.');
+      throw new Error('Chưa tải dictionary tag36h11.');
     }
     this.detector=new AR.Detector({dictionaryName:'APRILTAG_36h11', maxHammingDistance:3});
     this.ready=true;
