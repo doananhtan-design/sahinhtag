@@ -1,4 +1,4 @@
-const APP_VERSION = 'V1.0.0-B01-18PHUT';
+const APP_VERSION = 'V1.0.1-AUTO-TAG-18PHUT';
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
@@ -170,8 +170,24 @@ function clearOverlay(){if(!overlayCtx)return;overlayCtx.clearRect(0,0,overlay.w
 function drawDetections(ds){
   if(!overlayCtx||!video.videoWidth)return;
   overlay.width=video.videoWidth;overlay.height=video.videoHeight;clearOverlay();
-  overlayCtx.lineWidth=Math.max(3,video.videoWidth/500);overlayCtx.font='bold 26px system-ui';
-  for(const d of ds){const pts=d.corners;if(pts.length===4){overlayCtx.beginPath();overlayCtx.moveTo(pts[0][0],pts[0][1]);for(let i=1;i<4;i++)overlayCtx.lineTo(pts[i][0],pts[i][1]);overlayCtx.closePath();overlayCtx.strokeStyle='#00e5ff';overlayCtx.stroke();}overlayCtx.fillStyle='#00e5ff';overlayCtx.fillText(String(d.id),d.center.x+10,d.center.y-10)}
+  // Khung định vị TAG: luôn hiện để người lái đưa TAG vào đúng vùng quét.
+  const cx=overlay.width/2,cy=overlay.height/2;
+  const fw=Math.min(overlay.width*.58,520),fh=Math.min(overlay.height*.58,420);
+  overlayCtx.lineWidth=4;overlayCtx.strokeStyle='rgba(0,229,255,.9)';
+  overlayCtx.strokeRect(cx-fw/2,cy-fh/2,fw,fh);
+  overlayCtx.font='bold 22px system-ui';overlayCtx.fillStyle='rgba(0,229,255,.95)';
+  overlayCtx.fillText('ĐƯA TAG VÀO KHUNG',Math.max(12,cx-fw/2),Math.max(28,cy-fh/2-10));
+  overlayCtx.lineWidth=Math.max(3,video.videoWidth/500);overlayCtx.font='bold 28px system-ui';
+  for(const d of ds){
+    const pts=d.corners;
+    if(pts.length===4){
+      overlayCtx.beginPath();overlayCtx.moveTo(pts[0][0],pts[0][1]);
+      for(let i=1;i<4;i++)overlayCtx.lineTo(pts[i][0],pts[i][1]);
+      overlayCtx.closePath();overlayCtx.strokeStyle='#00ff66';overlayCtx.stroke();
+    }
+    overlayCtx.fillStyle='#00ff66';
+    overlayCtx.fillText('TAG '+String(d.id),d.center.x+10,d.center.y-10);
+  }
 }
 
 async function openCamera(){
@@ -340,7 +356,7 @@ class ExamEngine{
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
-async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();detectorErrorShown=false;const sb=$('startBtn');if(sb){sb.textContent='🔴 ĐANG THI';sb.disabled=true;sb.classList.add('running')}set('status','ĐANG THI — BẮT ĐẦU QUÉT APRILTAG');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
+async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(engine&&engine.result==='RUNNING')return;if(!await openCamera())return;engine=new ExamEngine();detectorErrorShown=false;const sb=$('startBtn');if(sb){sb.textContent='🔴 ĐANG THI';sb.disabled=true;sb.classList.add('running')}set('status','ĐANG THI — BẮT ĐẦU QUÉT APRILTAG');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();const sb=$('startBtn');if(sb){sb.textContent='🔄 THI LẠI';sb.disabled=false;sb.classList.remove('running')}}
 async function loop(t){
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
@@ -373,14 +389,14 @@ document.addEventListener('DOMContentLoaded',async()=>{
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
   const KEY='sahinh_teacher_session_v1';
   const id=x=>document.getElementById(x);
-  function show(t){id('loginOverlay').style.display=t?'none':'flex';id('userBox').style.display=t?'block':'none';id('startBtn').style.display=t?'block':'none';if(t){id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'')}}
+  function show(t){id('loginOverlay').style.display=t?'none':'flex';id('userBox').style.display=t?'block':'none';id('startBtn').style.display='none';if(t){id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'')}}
   async function doLogin(){
     const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
     if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
     try{
       const d=await apiPost({action:'login',taiKhoan:u,matKhau:p});
       if(!d.success)throw Error(d.message||'Đăng nhập thất bại');
-      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';
+      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';setTimeout(autoStartExam,150);
     }catch(x){e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block'}
   }
   id('loginBtn').onclick=doLogin;id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
@@ -390,8 +406,13 @@ document.addEventListener('DOMContentLoaded',async()=>{
   // Am thanh la file noi bo cua PWA, khong dong bo tu Drive.
   preloadLocalAudio();
   // Chi goi Google Apps Script khi giao vien dang nhap.
-  try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
+  try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t);setTimeout(autoStartExam,150)}else show(null)}catch(_){show(null)}
   $('startBtn').onclick=startExam;$('stopCamera').onclick=finishLocal;
+  // BẢN AUTO: đăng nhập xong hoặc có phiên giáo viên -> tự mở camera và bắt đầu quét TAG.
+  async function autoStartExam(){
+    if(!window.currentTeacher || (engine&&engine.result==='RUNNING')) return;
+    await startExam();
+  }
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
