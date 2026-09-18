@@ -1,4 +1,4 @@
-const CACHE='sahinh-ai-pwa-v1.1.4-camera-tag-fix';
+const CACHE='sahinh-ai-pwa-v1.1.5-b01-audio-sequence';
 const ASSETS=['./','./index.html','./app.css','./app.js','./apriltag-adapter.js','./manifest.json','./gas-config.js','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
