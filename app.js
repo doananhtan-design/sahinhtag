@@ -1,4 +1,4 @@
-const APP_VERSION = 'V1.0.1-AUTO-TAG-18PHUT';
+const APP_VERSION = 'V1.0.2-BATDAU-CAMERA';
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
@@ -389,14 +389,14 @@ document.addEventListener('DOMContentLoaded',async()=>{
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
   const KEY='sahinh_teacher_session_v1';
   const id=x=>document.getElementById(x);
-  function show(t){id('loginOverlay').style.display=t?'none':'flex';id('userBox').style.display=t?'block':'none';id('startBtn').style.display='none';if(t){id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'')}}
+  function show(t){id('loginOverlay').style.display=t?'none':'flex';id('userBox').style.display=t?'block':'none';id('startBtn').style.display=t?'block':'none';if(t){id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'')}}
   async function doLogin(){
     const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
     if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
     try{
       const d=await apiPost({action:'login',taiKhoan:u,matKhau:p});
       if(!d.success)throw Error(d.message||'Đăng nhập thất bại');
-      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';setTimeout(autoStartExam,150);
+      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';
     }catch(x){e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block'}
   }
   id('loginBtn').onclick=doLogin;id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
