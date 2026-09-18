@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.3.5-POSITION-B02-B03-B08-B10-B12';
+const DEPLOY_VERSION='V1.3.7-TAG-SEPARATION';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -57,6 +57,7 @@ const SAHINH_API_URL = window.SAHINH_API_URL || localStorage.getItem('sahinh_api
 const audioMem = new Map();
 let audioUnlocked = false;
 let activeAudio = null;
+let audioPlaySeq = 0;
 const AUDIO_COURSE_DIR = {b01:'b01',b02:'b02',b03:'b03',b04:'b04',b05:'b05',b06:'b06',b07:'b07',b08:'b08',b09:'b09',b10:'b10',b11:'b11',b12:'b12',b13:'b13',KT:'KT',thkc:'THKC'};
 
 function localAudioPath(course,file){
@@ -97,7 +98,7 @@ function preloadLocalAudio(){
   for(const c of Object.keys(AUDIO_COURSE_DIR)){
     if(c==='thkc') continue;
     const dir=AUDIO_COURSE_DIR[c];
-    for(const f of ['baobai.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
+    for(const f of ['baobai.mp3','vaobai.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','quatgbai.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
     if(c==='b01'){
       list.push('./audio/b01/qua30s.mp3');
     }
@@ -123,6 +124,8 @@ async function playDirect(course,file){
     reportAudioError(`./audio/${course}/${file}`, null, 'Sai đường dẫn hoặc chưa cấu hình thư mục audio');
     return false;
   }
+
+  const seq=++audioPlaySeq;
   try{
     let a=audioMem.get(src);
     if(!a){
@@ -132,17 +135,27 @@ async function playDirect(course,file){
       a.src=src;
       audioMem.set(src,a);
     }
+
     if(activeAudio && activeAudio!==a){
       try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}
     }
+
     activeAudio=a;
     a.currentTime=0;
     a.muted=false;
     await a.play();
+
+    if(seq!==audioPlaySeq){
+      try{a.pause();a.currentTime=0;}catch(_){}
+      return false;
+    }
+
     set('status', `🔊 ĐANG PHÁT: ${src}`);
     return true;
   }catch(e){
-    reportAudioError(src,e,'Kiểm tra file MP3 và đường dẫn trên GitHub Pages');
+    if(seq===audioPlaySeq){
+      reportAudioError(src,e,'Kiểm tra file MP3 và đường dẫn trên GitHub Pages');
+    }
     return false;
   }
 }
@@ -357,6 +370,11 @@ class CourseRule{
   this.positionCorrect=false;
   this.stopConfirmed=false;
   this.positionReferenceArea=0;
+  this.repeatStartTagCount=0;
+  this.repeatStartWaitingReturn=false;
+  this.repeatStartAt=0;
+  this.repeatStartDeadlineAt=0;
+  this.repeatStartDone=false;
   this.positionReferenceTag=0;
   this.positionResult=null;
   this.positionCorrect=false;
@@ -378,7 +396,15 @@ class CourseRule{
     this.state=1;
     this.audio('doilenh.mp3');
   }else{
-    play(this.key,'baobai.mp3',this.d.name);
+    // TAG BÁO BÀI đã được ExamEngine.announce() xác nhận.
+    // Chỉ tại đây mới phát baobai.mp3. Không phát vaobai.mp3 ở bước này.
+    this.audio('baobai.mp3');
+    event('COURSE_ANNOUNCE_AUDIO',{
+      course:this.key,
+      announceTag:this.d.announce,
+      audio:'baobai.mp3'
+    });
+
     if(isPositionRuleCourse(this.key)){
       if(this.positionReferenceArea>0){
         set('status',`${this.key.toUpperCase()} — MỐC XE ${getLocalVehicleId()}: ${Math.round(this.positionReferenceArea)} — ±5%`);
@@ -446,17 +472,78 @@ class CourseRule{
  simpleTimed(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.state=1;this.startedAt=t;return}if(this.state===1){if(t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian')}}if(this.d.end&&tag===this.d.end&&visible)this.finish('PASS','Hoàn thành bài')} }
  instant(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.finish('PASS','Hoàn thành bài');this.state=1}}
  positionRule(tag,area,visible,t){
-   if(this.state===0&&this.matchesStart(tag)&&visible){
+   const isRepeatTimed=(this.key==='b08'||this.key==='b12');
+   const exactStartTag=(tag===this.d.start);
+   const exactCheckTag=(tag===this.d.check);
+
+   // IMPORTANT:
+   // TAG báo bài (ví dụ 02/03/08/10/12) chỉ phát baobai.mp3 trong init().
+   // TAG vào bài (21/31/81/101/121) mới được phép phát vaobai.mp3.
+   if(this.state===0&&exactStartTag&&visible){
      this.audio('vaobai.mp3');
+     event('COURSE_START_AUDIO',{
+       course:this.key,
+       startTag:tag,
+       announceTag:this.d.announce,
+       audio:'vaobai.mp3'
+     });
+
      this.state=1;
      this.startedAt=t;
-     set('status',`${this.key.toUpperCase()} — ĐÃ VÀO BÀI — CHỜ TAG ${this.d.check}`);
-     event('POSITION_RULE_START',{course:this.key,startTag:tag,checkTag:this.d.check});
+
+     if(isRepeatTimed){
+       this.repeatStartTagCount=1;
+       this.repeatStartWaitingReturn=true;
+       this.repeatStartAt=t;
+       this.repeatStartDeadlineAt=t+120000;
+       this.repeatStartDone=false;
+
+       set('status',`${this.key.toUpperCase()} — VÀO BÀI — 120s — CHỜ TAG ${this.d.start} LẦN 2`);
+       event('POSITION_RULE_START',{
+         course:this.key,
+         startTag:tag,
+         checkTag:this.d.check,
+         timed120s:true,
+         deadlineMs:120000
+       });
+     }else{
+       set('status',`${this.key.toUpperCase()} — VÀO BÀI — CHỜ TAG ${this.d.check}`);
+       event('POSITION_RULE_START',{
+         course:this.key,
+         startTag:tag,
+         checkTag:this.d.check,
+         timed120s:false
+       });
+     }
      return 'POSITION_START';
    }
 
-   if(this.state===1&&tag===this.d.check&&visible){
-     this.cachedArea=area;
+   if(this.state===1){
+     // B08/B12: chỉ TAG vào bài thật sự (81/121) lần 2 mới kết thúc 120s.
+     if(isRepeatTimed&&exactStartTag&&visible){
+       if(this.repeatStartWaitingReturn){
+         return 'WAITING';
+       }
+
+       this.repeatStartTagCount=2;
+       this.repeatStartWaitingReturn=true;
+       this.repeatStartDone=true;
+       this.repeatStartDeadlineAt=0;
+
+       event('POSITION_RULE_SECOND_START_TAG',{
+         course:this.key,
+         startTag:tag,
+         elapsedMs:Math.max(0,t-(this.repeatStartAt||t))
+       });
+
+       set('status',`${this.key.toUpperCase()} — TAG ${tag} LẦN 2 — KẾT THÚC 120s`);
+       this.finish('PASS',`Hoàn thành ${this.key.toUpperCase()} — đủ 2 lần TAG vào bài`);
+       return 'FINISHED';
+     }
+
+     if(exactCheckTag&&visible){
+       this.cachedArea=area;
+     }
    }
 
    return 'WAITING';
@@ -544,8 +631,11 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());if(key==='b02')showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
+   if(this.current&&(this.current.key==='b08'||this.current.key==='b12')&&id!==this.current.d.start){
+     this.current.repeatStartWaitingReturn=false;
+   }
    if(id===141){
      const wasExpired=this.total18Expired;
      this.tag141Seen=true;
@@ -623,7 +713,22 @@ class ExamEngine{
      set('status','⛔ QUÁ TỔNG THỜI GIAN — CHỜ TAG 141');
    }
    if(this.current&&this.current.startedAt){
-     if(this.current.key==='b01'){
+     if((this.current.key==='b08'||this.current.key==='b12')&&this.current.repeatStartDeadlineAt&&!this.current.repeatStartDone){
+       const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
+       set('courseTimer',`${Math.ceil(remainRepeat/1000)}s`);
+       if(remainRepeat<=0&&!this.current.is_finished){
+         this.current.audio('quatgbai.mp3');
+         this.current.repeatStartDone=true;
+         this.current.repeatStartDeadlineAt=0;
+         event('POSITION_RULE_120S_TIMEOUT',{
+           course:this.current.key,
+           startTag:this.current.d.start,
+           message:'Quá 120 giây chưa thấy TAG vào bài lần 2'
+         });
+         set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATGBAI`);
+         this.current.finish('TIMEOUT',`Quá 120s — chưa thấy TAG ${this.current.d.start} lần 2`);
+       }
+     }else if(this.current.key==='b01'){
        if(this.current.state===1){
          const remain=Math.max(0,20000-(t-this.current.startedAt));
          set('courseTimer',`${Math.ceil(remain/1000)}s`);
@@ -753,6 +858,9 @@ async function loop(t){
         set('status','🟢 NHẬN TAG '+ds[0].id);
         engine.handle(ds[0],t);
       }else{
+        if(engine?.current&&(engine.current.key==='b08'||engine.current.key==='b12')){
+          engine.current.repeatStartWaitingReturn=false;
+        }
         set('status','🔎 ĐANG QUÉT APRILTAG 36h11...');
       }
     }catch(e){
