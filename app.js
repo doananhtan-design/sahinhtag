@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.1-TOTAL18-REMIND5S';
+const DEPLOY_VERSION='V1.2.2-RETRY-FULL-RESET';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -349,23 +349,26 @@ async function startExam(){
 }
 function retryExam(){
   try{
+    if(activeAudio){try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}}
+    activeAudio=null;
     if(engine){engine.result='STOPPED';}
     stopCamera();
   }catch(_){ }
   engine=null;
   set('course','WAITING');
   set('tag','--');
-  set('status','SẴN SÀNG — NHẤN BẮT ĐẦU');
+  set('status','SẴN SÀNG — NHẤN BẮT ĐẦU TỪ TAG 01');
   set('timer','00:00');
   set('stable','0.0s');
   set('courseTimer','--');
   set('totalTimer','18:00');
+  const alert=$('alert');if(alert){alert.classList.add('hidden');alert.textContent='';}
   const sb=$('startBtn');
   if(sb){sb.style.display=window.currentTeacher?'block':'none';sb.textContent='▶ BẮT ĐẦU';sb.disabled=false;sb.classList.remove('running');}
   const rb=$('retryBtn');
   if(rb) rb.classList.remove('hidden');
-  persist();
-  event('RETRY_EXAM',{});
+  try{clearOverlay();}catch(_){ }
+  event('RETRY_EXAM',{resetAllTimers:true,nextCourse:'B01',nextTag:1});
 }
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
@@ -417,6 +420,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   // Chi goi Google Apps Script khi giao vien dang nhap.
   try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
   $('startBtn').onclick=startExam;
+  $('retryBtn').onclick=retryExam;
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
