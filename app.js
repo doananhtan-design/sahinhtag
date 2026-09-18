@@ -46,7 +46,7 @@ function preloadLocalAudio(){
   for(const c of Object.keys(AUDIO_COURSE_DIR)){
     if(c==='thkc') continue;
     const dir=AUDIO_COURSE_DIR[c];
-    for(const f of ['baobai.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
+    for(const f of ['baobai.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3','b01_XP.mp3','qua30s.mp3']) list.push(`./audio/${dir}/${f}`);
   }
   list.push('./audio/THKC/THKC.mp3','./audio/THKC/saiquytrinh.mp3','./audio/KT/hoanthanh.mp3');
   [...new Set(list)].forEach(src=>{const a=new Audio();a.preload='auto';a.src=src;});
@@ -56,7 +56,6 @@ async function playDirect(course,file,fallback=''){
   // Mot so file dac biet chi co o thu muc KT/THKC.
   if(file==='hoanthanh.mp3') src='./audio/KT/hoanthanh.mp3';
   if(file==='THKC.mp3') src='./audio/THKC/THKC.mp3';
-  if(file==='quagio.mp3' && course==='b01') src='./audio/b10/quagio.mp3';
   if(!src){if(fallback)speak(fallback);return;}
   try{
     let a=audioMem.get(src);
@@ -111,7 +110,7 @@ function stopCamera(){if(video?.srcObject){video.srcObject.getTracks().forEach(t
 class CourseRule{
  constructor(key){this.key=key;this.d={...COURSE_DEFS[key]};this.reset()}
  reset(){this.state=0;this.is_finished=false;this.startedAt=0;this.areaHistory=[];this.cachedArea=0;this.warnedTimeout=false;this.warnedRollback=false;this.stopFrameCount=0;this.lastCx=-1;this.lastCy=-1;this.delayAt=0;this.distanceMeters=this.d.distanceMeters||30;this.result=null}
- init(t){this.reset();this.loadCalib();if(this.key==='b01'){this.startedAt=t;this.state=1;this.audio('doilenh.mp3','Xin hãy đợi lệnh xuất phát')}else{play(this.key,'baobai.mp3',this.d.name)}event('COURSE_INIT',{course:this.key});}
+ init(t){this.reset();this.loadCalib();if(this.key==='b01'){this.startedAt=t;this.state=1;this.commandPlayed=false;this.total18StartAt=0;this.total18DeadlineAt=0;this.b01Wait30StartAt=0;this.audio('doilenh.mp3','Xin hãy đợi lệnh xuất phát');set('courseTimer','20s');set('timer','--:--');set('status','B01 — XIN HÃY ĐỢI LỆNH XUẤT PHÁT (20s)')}else{play(this.key,'baobai.mp3',this.d.name)}event('COURSE_INIT',{course:this.key});}
  loadCalib(){try{const c=JSON.parse(localStorage.getItem('sahinh_calib_'+this.key)||'null');if(c){if(c.areaMin)this.d.areaMin=c.areaMin;if(c.areaMax)this.d.areaMax=c.areaMax;}}catch(_){} }
  audio(file,text){play(this.key,file,text)}
  elapsed(t=Date.now()){return this.startedAt?((t-this.startedAt)/1000):0}
@@ -129,7 +128,30 @@ class CourseRule{
    if(this.key==='KT')return this.kt(tag,visible,t);
    return null;
  }
- b01(tag,visible,t){if(this.state===1){if(t-this.startedAt<20000)return 'LOCKED';this.audio('baobai.mp3','Bài tiếp theo: Xuất phát');this.state=2}if(this.state===2&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3','Bính bong');this.finish('PASS','Bài 01 hoàn thành');return 'FINISHED'}return 'WAITING'}
+ b01(tag,visible,t){
+   if(this.state===1){
+     if(t-this.startedAt<20000)return 'LOCKED';
+     if(!this.commandPlayed){
+       this.audio('b01_XP.mp3','Lệnh xuất phát');
+       this.commandPlayed=true;
+       this.b01Wait30StartAt=t;
+       this.total18StartAt=t;
+       this.total18DeadlineAt=t+18*60*1000;
+       event('B01_XP_COMMAND',{afterMs:Math.round(t-this.startedAt)});
+       set('status','B01 — ĐÃ PHÁT LỆNH XUẤT PHÁT — CHỜ TAG 111 (30s)');
+       set('courseTimer','30s');
+       set('timer','18:00');
+       this.state=2;
+     }
+   }
+   if(this.state===2&&this.matchesStart(tag)&&visible){
+     this.audio('batdau.mp3','Bính bong');
+     event('B01_TAG_111_START',{tag});
+     this.finish('PASS','Bài 01 hoàn thành');
+     return 'FINISHED';
+   }
+   return 'WAITING';
+ }
  simpleTimed(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3','Bính bong');this.state=1;this.startedAt=t;return}if(this.state===1){if(t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3','Quá thời gian bài thi');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian')}}if(this.d.end&&tag===this.d.end&&visible)this.finish('PASS','Hoàn thành bài')} }
  instant(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3','Bính bong');this.finish('PASS','Hoàn thành bài');this.state=1}}
  b02(tag,area,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3','Bính bong');this.state=1;this.startedAt=t;return}if(this.state===1){if(t-this.startedAt>=this.d.limit*1000){this.audio('qua 20s.mp3','Quá thời gian');this.startedAt=t}if(tag===22&&visible)this.cachedArea=area}}
@@ -145,17 +167,74 @@ class CourseRule{
 }
 
 class ExamEngine{
- constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;}
+ constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.b01XpHandled=false;this.total18StartAt=0;this.total18DeadlineAt=0;}
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
  announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area);this.stableAt=0}}else this.stableAt=0}
    if(this.current.is_finished){const finished=this.current.key;if(finished==='KT'){this.result='COMPLETED';this.totalElapsed=Date.now()-this.startedAt;event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});set('status','HOÀN THÀNH');alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);set('course','HOÀN THÀNH');this.current=null}else{set('status',this.current.result==='PASS'?'ĐẠT':'CÓ LỖI');this.current=null}}
  }
- update(t){if(this.result!=='RUNNING')return;if(this.emergencyPendingAt&&t>=this.emergencyPendingAt&&!this.emergencyTriggered){this.emergencyPendingAt=0;this.emergencyTriggered=true;this.tagLockUntil=t+10000;event('THKC_TRIGGERED',{spot:this.emergencySpot});alertMsg('🚨 TÌNH HUỐNG KHẨN CẤP — DỪNG XE NGAY',10000);play('THKC','THKC.mp3','CÒI KHẨN CẤP — DỪNG XE NGAY');}set('timer',fmt(Date.now()-this.startedAt));if(this.current&&this.current.startedAt){const remain=Math.max(0,this.current.d.limit*1000-(t-this.current.startedAt));set('courseTimer',`${Math.ceil(remain/1000)}s`)}}
+ update(t){
+   if(this.result!=='RUNNING')return;
+   if(this.emergencyPendingAt&&t>=this.emergencyPendingAt&&!this.emergencyTriggered){
+     this.emergencyPendingAt=0;this.emergencyTriggered=true;this.tagLockUntil=t+10000;
+     event('THKC_TRIGGERED',{spot:this.emergencySpot});
+     alertMsg('🚨 TÌNH HUỐNG KHẨN CẤP — DỪNG XE NGAY',10000);
+     play('THKC','THKC.mp3','CÒI KHẨN CẤP — DỪNG XE NGAY');
+   }
+   if(this.total18DeadlineAt){
+     const remain18=Math.max(0,this.total18DeadlineAt-t);
+     const mm=Math.floor(remain18/60000);
+     const ss=Math.ceil((remain18%60000)/1000);
+     set('timer',`${mm}:${String(ss).padStart(2,'0')}`);
+     if(remain18<=0&&this.result==='RUNNING'){
+       if(this.current&&!this.current.is_finished)this.current.audio('quagio.mp3','Quá thời gian bài thi');
+       event('EXAM_TOTAL_18_TIMEOUT',{limitMinutes:18});
+       if(this.current&&!this.current.is_finished)this.current.finish('TIMEOUT','Hết tổng thời gian 18 phút');
+       this.result='TIMEOUT';
+       set('status','HẾT TỔNG THỜI GIAN 18 PHÚT');
+     }
+   } else {
+     set('timer',fmt(Date.now()-this.startedAt));
+   }
+
+   if(this.current?.key==='b01'){
+     if(this.current.state===1){
+       const remain20=Math.max(0,20000-(t-this.current.startedAt));
+       set('courseTimer',`${Math.ceil(remain20/1000)}s`);
+       if(remain20<=0){
+         this.current.b01(null,true,t);
+         this.total18StartAt=this.current.total18StartAt||t;
+         this.total18DeadlineAt=this.current.total18DeadlineAt||0;
+         this.tagLockUntil=0;
+       }
+     }
+     if(this.current.state===2&&!this.current.is_finished){
+       const remain30=Math.max(0,30000-(t-this.current.b01Wait30StartAt));
+       set('courseTimer',`${Math.ceil(remain30/1000)}s`);
+       if(remain30<=0){
+         this.current.audio('qua30s.mp3','Quá 30 giây chưa thấy TAG 111');
+         event('B01_TAG_111_TIMEOUT',{afterMs:30000});
+         this.current.finish('TIMEOUT','Không thấy TAG 111 trong 30 giây');
+       }
+     }
+   }
+   if(this.current&&this.current.startedAt&&this.current.key!=='b01'){
+     const remain=Math.max(0,this.current.d.limit*1000-(t-this.current.startedAt));
+     set('courseTimer',`${Math.ceil(remain/1000)}s`);
+   }
+   if(this.current?.is_finished){
+     const finished=this.current.key;
+     if(finished==='b01'){
+       set('status',this.current.result==='PASS'?'B01 — HOÀN THÀNH':'B01 — CÓ LỖI');
+       set('courseTimer','--');
+       this.current=null;
+     }
+   }
+ }
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
-async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();set('status','ĐANG THI');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
+async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();set('status','ĐANG THI — CHỜ TAG 01');set('course','WAITING');set('tag','--');set('timer','--:--');set('stable','0.0s');set('courseTimer','--');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){processing=true;try{workCanvas.width=video.videoWidth||640;workCanvas.height=video.videoHeight||360;workCtx.drawImage(video,0,0,workCanvas.width,workCanvas.height);const ds=await adapter.detectFrame(workCanvas);drawDetections(ds);if(ds.length){const d=ds[0];engine.handle(d,t);}}catch(e){console.warn(e)}finally{processing=false}}if(engine)engine.update(t);raf=requestAnimationFrame(loop)}
 
@@ -181,7 +260,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   preloadLocalAudio();
   // Chi goi Google Apps Script khi giao vien dang nhap.
   try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
-  $('startBtn').onclick=startExam;$('stopCamera').onclick=finishLocal;
+  $('startBtn').onclick=startExam;
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
