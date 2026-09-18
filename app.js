@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.1.7-B01-MP3-ONLY';
+const DEPLOY_VERSION='V1.1.8-B01-18MIN-RETRY';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -233,7 +233,7 @@ class ExamEngine{
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
  announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area);this.stableAt=0}}else this.stableAt=0}
-   if(this.current.is_finished){const finished=this.current.key;if(finished==='KT'){this.result='COMPLETED';this.totalElapsed=Date.now()-this.startedAt;event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});set('status','HOÀN THÀNH');alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);set('course','HOÀN THÀNH');this.current=null}else{set('status',this.current.result==='PASS'?'ĐẠT':'CÓ LỖI');set('startBtn','🔄 THI LẠI');this.current=null}}
+   if(this.current.is_finished){const finished=this.current.key;if(finished==='KT'){this.result='COMPLETED';this.totalElapsed=Date.now()-this.startedAt;event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});set('status','HOÀN THÀNH');alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);set('course','HOÀN THÀNH');this.current=null}else{set('status',this.current.result==='PASS'?'ĐẠT':'CÓ LỖI');set('startBtn','▶ BẮT ĐẦU');const rb=$('retryBtn');if(rb)rb.classList.remove('hidden');this.current=null}}
  }
  update(t){
    if(this.result!=='RUNNING')return;
@@ -249,6 +249,7 @@ class ExamEngine{
        if(this.current.state===1){
          const remain=Math.max(0,20000-(t-this.current.startedAt));
          set('courseTimer',`${Math.ceil(remain/1000)}s`);
+         set('startBtn',`⏳ ĐỢI XUẤT PHÁT — ${Math.ceil(remain/1000)}s`);
          if(remain<=0){this.current.b01(null,true,t);this.tagLockUntil=0;set('status','ĐÃ PHÁT LỆNH XUẤT PHÁT — CHỜ TAG 111 (30s)');}
        }else if(this.current.state===2){
          const remain30=Math.max(0,30000-(t-this.current.startedAt));
@@ -261,7 +262,8 @@ class ExamEngine{
          if(remain18<=0&&!this.current.is_finished){
            this.current.audio('quagio.mp3');
            this.current.finish('TIMEOUT','Hết tổng thời gian 18 phút');
-           set('startBtn','🔄 THI LẠI');
+           set('startBtn','▶ BẮT ĐẦU');
+           const rb=$('retryBtn');if(rb)rb.classList.remove('hidden');
          }else if(remain30<=0&&!this.current.is_finished){
            this.current.b01(null,true,t);
          }
@@ -275,7 +277,38 @@ class ExamEngine{
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
-async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}await unlockAudio();if(!await openCamera())return;engine=new ExamEngine();set('status','ĐANG THI — CHỜ TAG 01');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
+async function startExam(){
+  if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}
+  const sb=$('startBtn');
+  if(sb){sb.disabled=true;sb.textContent='⏳ ĐỢI XUẤT PHÁT';sb.classList.add('running')}
+  const rb=$('retryBtn');if(rb)rb.classList.add('hidden');
+  if(!await openCamera()){if(sb){sb.disabled=false;sb.textContent='▶ BẮT ĐẦU';sb.classList.remove('running')}return}
+  unlockAudio().catch(()=>{});
+  engine=new ExamEngine();
+  set('status','ĐANG THI — CHỜ TAG 01');
+  set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');
+  persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
+}
+function retryExam(){
+  try{
+    if(engine){engine.result='STOPPED';}
+    stopCamera();
+  }catch(_){ }
+  engine=null;
+  set('course','WAITING');
+  set('tag','--');
+  set('status','SẴN SÀNG — NHẤN BẮT ĐẦU');
+  set('timer','00:00');
+  set('stable','0.0s');
+  set('courseTimer','--');
+  set('totalTimer','18:00');
+  const sb=$('startBtn');
+  if(sb){sb.style.display=window.currentTeacher?'block':'none';sb.textContent='▶ BẮT ĐẦU';sb.disabled=false;sb.classList.remove('running');}
+  const rb=$('retryBtn');
+  if(rb) rb.classList.add('hidden');
+  persist();
+  event('RETRY_EXAM',{});
+}
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
