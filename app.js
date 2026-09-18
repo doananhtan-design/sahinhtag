@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.9-VISIBLE-TOTAL18';
+const DEPLOY_VERSION='V1.3.0-TOP-TIMER';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -29,13 +29,12 @@ function renderTotal18Timer(engineRef){
   if(!engineRef||!engineRef.total18StartAt||!engineRef.total18DeadlineAt) return;
   const nowMs=performance.now();
   const remain=Math.max(0,engineRef.total18DeadlineAt-nowMs);
-  const totalSec=Math.ceil(remain/1000);
+  const totalSec=Math.max(0,Math.ceil(remain/1000));
   const mm=Math.floor(totalSec/60);
   const ss=totalSec%60;
   const display=`${mm}:${String(ss).padStart(2,'0')}`;
   set('totalTimer',display);
   set('totalTimerBig',display);
-  set('totalClockHint',engineRef.total18Expired?'Đã hết 18 phút — đang chờ TAG 141':'Đếm liên tục từ B01 đến KT');
 }
 function stopTotal18Ticker(){
   if(total18Ticker){clearInterval(total18Ticker);total18Ticker=0;}
@@ -390,8 +389,7 @@ class ExamEngine{
 }
 function fmtTotal18Countdown(deadlineMs, nowMs){
   const remainingMs=Math.max(0,deadlineMs-nowMs);
-  // Đếm theo GIÂY: sau 5 giây từ 18:00 sẽ hiển thị 17:55.
-  const totalSec=Math.ceil(remainingMs/1000);
+  const totalSec=Math.max(0,Math.ceil(remainingMs/1000));
   const mm=Math.floor(totalSec/60);
   const ss=totalSec%60;
   return `${mm}:${String(ss).padStart(2,'0')}`;

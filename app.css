@@ -38,3 +38,23 @@
   font-size:11px;
   color:#8fb0d7;
 }
+
+/* V1.3.0: global exam timer stays at the top */
+.total-clock-top{
+  position:sticky;
+  top:0;
+  z-index:60;
+  margin:0 12px 8px;
+  padding:8px 12px 10px;
+  border-radius:0 0 16px 16px;
+}
+.total-clock-top .total-clock-label{
+  font-size:14px;
+  line-height:1.1;
+  margin:0;
+}
+.total-clock-top .total-clock-value{
+  font-size:38px;
+  line-height:1;
+  margin-top:2px;
+}
