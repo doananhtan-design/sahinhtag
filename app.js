@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.7-TOTAL18-SYNC-BAOBAI';
+const DEPLOY_VERSION='V1.2.8-TOTAL18-HARD-TIMER';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -23,6 +23,31 @@ const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
 let video,workCanvas,workCtx,overlay,overlayCtx,adapter;
 let engine=null,raf=0,processing=false;
+let total18Ticker=0;
+
+function renderTotal18Timer(engineRef){
+  if(!engineRef||!engineRef.total18StartAt||!engineRef.total18DeadlineAt) return;
+  const nowMs=performance.now();
+  const remain=Math.max(0,engineRef.total18DeadlineAt-nowMs);
+  const totalSec=Math.ceil(remain/1000);
+  const mm=Math.floor(totalSec/60);
+  const ss=totalSec%60;
+  set('totalTimer',`${mm}:${String(ss).padStart(2,'0')}`);
+}
+function stopTotal18Ticker(){
+  if(total18Ticker){clearInterval(total18Ticker);total18Ticker=0;}
+}
+function startTotal18Ticker(engineRef){
+  stopTotal18Ticker();
+  renderTotal18Timer(engineRef);
+  total18Ticker=setInterval(()=>{
+    if(!engineRef || engineRef!==engine || engineRef.result!=='RUNNING'){
+      stopTotal18Ticker();
+      return;
+    }
+    renderTotal18Timer(engineRef);
+  },200);
+}
 
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
@@ -202,13 +227,13 @@ class CourseRule{
        this.startedAt=t;
        // ĐỒNG HỒ TỔNG 18 PHÚT BẮT ĐẦU NGAY CÙNG LÚC GỌI PHÁT baobai.mp3.
        // Không chờ Promise của audio; mốc thời gian dùng chính tick t này.
-       const totalStarted=engine&&engine.startTotal18(t);
+       const totalStarted=engine&&engine.startTotal18();
        const p=this.audio('baobai.mp3');
        if(totalStarted){
          set('startBtn','⏳ ĐANG THI — 18 PHÚT TOÀN BÀI');
          set('totalTimer','18:00');
          event('B01_BA0BAI_COMMAND',{
-           afterMs:Math.round(t-this.initAtForCommand || 20000),
+           afterMs:Math.max(0,Math.round(t-this.initAtForCommand)),
            totalLimitMs:18*60*1000,
            timerStartsSameTick:true
          });
@@ -248,13 +273,15 @@ class CourseRule{
 
 class ExamEngine{
  constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false;this.total18Expired=false;this.total18NextReminderAt=0;}
- startTotal18(t){
+ startTotal18(){
    if(this.total18StartAt||this.tag141Seen)return false;
-   this.total18StartAt=t;
-   this.total18DeadlineAt=t+18*60*1000;
+   const startAt=performance.now();
+   this.total18StartAt=startAt;
+   this.total18DeadlineAt=startAt+18*60*1000;
    this.total18Expired=false;
    this.total18NextReminderAt=0;
    set('totalTimer','18:00');
+   startTotal18Ticker(this);
    event('TOTAL18_STARTED',{source:'B01_baobai',totalLimitMs:18*60*1000});
    return true;
  }
@@ -265,6 +292,7 @@ class ExamEngine{
      const wasExpired=this.total18Expired;
      this.tag141Seen=true;
      this.total18NextReminderAt=0;
+     stopTotal18Ticker();
      event('TAG_141_SEEN',{
        atMs:Math.max(0,t-(this.total18StartAt||t)),
        before18Min:!this.total18DeadlineAt||t<=this.total18DeadlineAt,
@@ -312,11 +340,12 @@ class ExamEngine{
    // Khi thấy TAG 141 thì dừng kiểm soát timeout 18 phút.
    // INVARIANT: total18StartAt chỉ được set một lần bởi B01/baobai.mp3; các TAG/Bài sau không reset.
    if(this.total18StartAt&&!this.tag141Seen&&!this.total18Expired){
-     const remain=Math.max(0,this.total18DeadlineAt-t); const totalText=fmtTotal18Countdown(this.total18DeadlineAt,t);
-     set('totalTimer',totalText);
-     // Đây là đồng hồ TOÀN BÀI, không phụ thuộc current/B01/B02/.../KT.
+     const remain=Math.max(0,this.total18DeadlineAt-performance.now());
+     // Đồng hồ tổng được điều khiển bởi total18Ticker độc lập với detector.
      if(remain<=0){
        this.total18Expired=true;
+       set('totalTimer','00:00');
+       stopTotal18Ticker();
        if(!this.total18NextReminderAt){
          this.total18NextReminderAt=t;
          event('TOTAL_18MIN_TIMEOUT',{message:'Hết 18 phút nhưng chưa thấy TAG 141'});
@@ -367,6 +396,7 @@ function fmtTotal18Countdown(deadlineMs, nowMs){
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
 async function startExam(){
+  stopTotal18Ticker();
   if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}
   const sb=$('startBtn');
   // Chuyển ngay sang trạng thái ĐỢI XUẤT PHÁT khi bấm nút.
@@ -388,6 +418,7 @@ async function startExam(){
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
 }
 async function retryExam(){
+  stopTotal18Ticker();
   const rb=$('retryBtn');
   const sb=$('startBtn');
   if(rb){rb.disabled=true;rb.textContent='⏳ ĐANG THI LẠI...';}
@@ -445,7 +476,7 @@ async function retryExam(){
   }
 }
 window.retryExam=retryExam;
-function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
+function finishLocal(){stopTotal18Ticker();if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
     processing=true;
