@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.0-B03-POSITION-TUT-THITRUOT';
+const DEPLOY_VERSION='V1.4.2-SECONDARY-COUNTDOWN';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -21,6 +21,24 @@ const STABLE_MS=1200,DISTANCE_THRESHOLD=12,AREA_THRESHOLD=1500,ALPHA=.7;
 const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
+
+function hideSecondaryTimer(){
+  const box=$('secondaryTimerBox');
+  if(box) box.classList.add('hidden');
+}
+function showSecondaryTimer(label,remainingMs,hint='') {
+  const box=$('secondaryTimerBox');
+  if(!box) return;
+  const remain=Math.max(0,Number(remainingMs)||0);
+  const totalSec=Math.max(0,Math.ceil(remain/1000));
+  set('secondaryTimerLabel',label||'THỜI GIAN PHỤ');
+  set('secondaryTimerValue',`${totalSec}s`);
+  set('secondaryTimerHint',hint||'');
+  box.classList.remove('hidden');
+  box.classList.toggle('danger',totalSec<=10 && totalSec>0);
+  box.classList.toggle('expired',totalSec===0);
+}
+
 let video,workCanvas,workCtx,overlay,overlayCtx,adapter;
 let engine=null,raf=0,processing=false;
 let total18Ticker=0;
@@ -847,7 +865,9 @@ class ExamEngine{
    if(this.current&&this.current.startedAt){
      if((this.current.key==='b08'||this.current.key==='b12')&&this.current.repeatStartDeadlineAt&&!this.current.repeatStartDone){
        const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
-       set('courseTimer',`${Math.ceil(remainRepeat/1000)}s`);
+       const sec=Math.ceil(remainRepeat/1000);
+       set('courseTimer',`${sec}s`);
+       showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remainRepeat,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.start} lần 2`);
        if(remainRepeat<=0&&!this.current.is_finished){
          this.current.audio('quatgbai.mp3');
          this.current.repeatStartDone=true;
@@ -862,7 +882,9 @@ class ExamEngine{
        }
      }else if(this.current.key==='b03' && this.current.delayAt>0){
        const remain30=Math.max(0,30000-(t-this.current.delayAt));
-       set('courseTimer',`${Math.ceil(remain30/1000)}s`);
+       const sec=Math.ceil(remain30/1000);
+       set('courseTimer',`${sec}s`);
+       showSecondaryTimer('⏱ THỜI GIAN PHỤ — 30 GIÂY',remain30,'B03 — thời gian sau DỪNG XE, giám sát TAG 32');
        if(remain30<=0 && !this.current.warnedTimeout && !this.current.is_finished){
          // Chỉ xử lý quá 30s khi detector của vòng handle còn thấy chính TAG 32.
          // Không tự phát cảnh báo nếu TAG 32 đã rời khung.
@@ -871,19 +893,25 @@ class ExamEngine{
        if(this.current.state===1){
          const remain=Math.max(0,20000-(t-this.current.startedAt));
          set('courseTimer',`${Math.ceil(remain/1000)}s`);
+         hideSecondaryTimer();
          set('startBtn',`⏳ ĐỢI XUẤT PHÁT — ${Math.ceil(remain/1000)}s`);
          if(remain<=0){this.current.b01(null,true,t);this.tagLockUntil=0;set('status','ĐÃ PHÁT LỆNH XUẤT PHÁT — CHỜ TAG 111 (30s)');}
        }else if(this.current.state===2){
          const remain30=Math.max(0,30000-(t-this.current.startedAt));
-         set('courseTimer',`${Math.ceil(remain30/1000)}s`);
+         const sec=Math.ceil(remain30/1000);
+         set('courseTimer',`${sec}s`);
+         showSecondaryTimer('⏱ THỜI GIAN PHỤ — 30 GIÂY',remain30,'B01 — chờ TAG 111');
          if(remain30<=0&&!this.current.is_finished){
            this.current.b01(null,true,t);
          }
        }
      }else{
+       hideSecondaryTimer();
        const remain=Math.max(0,this.current.d.limit*1000-(t-this.current.startedAt));
        set('courseTimer',`${Math.ceil(remain/1000)}s`);
      }
+   }else{
+     hideSecondaryTimer();
    }
  }
 }
@@ -917,7 +945,7 @@ async function startExam(){
   }
   engine=new ExamEngine();
   set('status','ĐỢI XUẤT PHÁT — CHỜ TAG 01');
-  set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
+  set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');hideSecondaryTimer();set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
 }
 async function retryExam(){
@@ -944,6 +972,7 @@ async function retryExam(){
   set('timer','00:00');
   set('stable','0.0s');
   set('courseTimer','--');
+  hideSecondaryTimer();
   set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
   const alert=$('alert');
   if(alert){alert.classList.add('hidden');alert.textContent='';}
@@ -968,6 +997,7 @@ async function retryExam(){
     set('tag','--');
     set('timer','00:00');
     set('courseTimer','--');
+    hideSecondaryTimer();
     set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
     persist();
     event('RETRY_EXAM',{resetAllTimers:true,nextCourse:'B01',nextTag:1,autoStart:true});

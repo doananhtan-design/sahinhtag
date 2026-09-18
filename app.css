@@ -82,3 +82,47 @@
   background:#eaf3ff;
   color:#0b5ed7;
 }
+
+
+.secondary-clock{
+  margin:0 12px 10px;
+  padding:10px 14px 12px;
+  border-radius:16px;
+  background:#3a2700;
+  border:2px solid #f79009;
+  box-shadow:0 8px 24px #0005;
+  text-align:center;
+  position:sticky;
+  top:84px;
+  z-index:55;
+}
+.secondary-clock-label{
+  font-size:13px;
+  font-weight:950;
+  letter-spacing:.3px;
+  color:#ffd79a;
+}
+.secondary-clock-value{
+  margin-top:2px;
+  font-size:34px;
+  line-height:1;
+  font-weight:1000;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:1px;
+  color:#fff;
+}
+.secondary-clock-hint{
+  margin-top:4px;
+  font-size:11px;
+  color:#ffdca8;
+}
+.secondary-clock.danger{
+  border-color:#e44;
+  background:#4a1418;
+  animation:secondaryPulse .8s infinite alternate;
+}
+.secondary-clock.expired{
+  border-color:#e44;
+  background:#5b1017;
+}
+@keyframes secondaryPulse{from{box-shadow:0 8px 24px #0005}to{box-shadow:0 0 0 5px #e44a,0 8px 24px #0006}}
