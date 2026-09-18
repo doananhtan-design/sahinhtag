@@ -1,3 +1,4 @@
+const APP_VERSION = 'V1.0.0-B01-18PHUT';
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
@@ -405,3 +406,5 @@ window.resetToB01 = function(){
     location.reload();
   }catch(e){ location.reload(); }
 };
+
+window.APP_VERSION=APP_VERSION;
