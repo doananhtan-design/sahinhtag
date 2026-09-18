@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.2-RETRY-FULL-RESET';
+const DEPLOY_VERSION='V1.2.3-RETRY-AUTO-TAG01';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -347,29 +347,64 @@ async function startExam(){
   set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
 }
-function retryExam(){
+async function retryExam(){
+  const rb=$('retryBtn');
+  const sb=$('startBtn');
+  if(rb){rb.disabled=true;rb.textContent='⏳ ĐANG THI LẠI...';}
   try{
-    if(activeAudio){try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}}
+    // Dừng phiên cũ + audio + camera.
+    if(activeAudio){try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){} }
     activeAudio=null;
     if(engine){engine.result='STOPPED';}
     stopCamera();
-  }catch(_){ }
+  }catch(e){console.warn('Retry cleanup:',e)}
+
+  // Xóa hoàn toàn phiên cũ để không còn bộ đếm/khóa TAG cũ.
   engine=null;
+  try{localStorage.removeItem('sahinh_exam_v2')}catch(_){}
   set('course','WAITING');
   set('tag','--');
-  set('status','SẴN SÀNG — NHẤN BẮT ĐẦU TỪ TAG 01');
+  set('status','ĐANG THI LẠI — CHUẨN BỊ NHẬN TAG 01');
   set('timer','00:00');
   set('stable','0.0s');
   set('courseTimer','--');
   set('totalTimer','18:00');
-  const alert=$('alert');if(alert){alert.classList.add('hidden');alert.textContent='';}
-  const sb=$('startBtn');
-  if(sb){sb.style.display=window.currentTeacher?'block':'none';sb.textContent='▶ BẮT ĐẦU';sb.disabled=false;sb.classList.remove('running');}
-  const rb=$('retryBtn');
-  if(rb) rb.classList.remove('hidden');
-  try{clearOverlay();}catch(_){ }
-  event('RETRY_EXAM',{resetAllTimers:true,nextCourse:'B01',nextTag:1});
+  const alert=$('alert');
+  if(alert){alert.classList.add('hidden');alert.textContent='';}
+  try{clearOverlay()}catch(_){}
+
+  // THI LẠI = bắt đầu lại ngay, không cần bấm BẮT ĐẦU lần nữa.
+  if(sb){
+    sb.style.display=window.currentTeacher?'block':'none';
+    sb.textContent='⏳ ĐỢI XUẤT PHÁT';
+    sb.disabled=true;
+    sb.classList.add('running');
+  }
+  try{
+    if(!window.currentTeacher) throw Error('Chưa đăng nhập giáo viên');
+    const cameraOk=await openCamera();
+    if(!cameraOk) throw Error('Không mở được camera');
+    const audioOk=await unlockAudio();
+    if(!audioOk) throw Error('Không khởi tạo được audio MP3');
+    engine=new ExamEngine();
+    set('status','ĐỢI XUẤT PHÁT — SẴN SÀNG NHẬN TAG 01');
+    set('course','WAITING');
+    set('tag','--');
+    set('timer','00:00');
+    set('courseTimer','--');
+    set('totalTimer','18:00');
+    persist();
+    event('RETRY_EXAM',{resetAllTimers:true,nextCourse:'B01',nextTag:1,autoStart:true});
+  }catch(e){
+    engine=null;
+    if(sb){sb.textContent='▶ BẮT ĐẦU';sb.disabled=false;sb.classList.remove('running')}
+    set('status','❌ THI LẠI LỖI: '+(e.message||e.name||'Không xác định'));
+    alertMsg('❌ THI LẠI LỖI: '+(e.message||e.name||'Không xác định'),7000);
+  }finally{
+    if(rb){rb.disabled=false;rb.textContent='🔄 THI LẠI';}
+  }
 }
+window.retryExam=retryExam;
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
@@ -420,7 +455,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   // Chi goi Google Apps Script khi giao vien dang nhap.
   try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
   $('startBtn').onclick=startExam;
-  $('retryBtn').onclick=retryExam;
+  $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
