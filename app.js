@@ -222,7 +222,31 @@ function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `
 
 async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();set('status','ĐANG THI');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('totalTimer','18:00');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
-async function loop(t){if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){processing=true;try{workCanvas.width=video.videoWidth||640;workCanvas.height=video.videoHeight||360;workCtx.drawImage(video,0,0,workCanvas.width,workCanvas.height);const ds=await adapter.detectFrame(workCanvas);drawDetections(ds);if(ds.length){const d=ds[0];engine.handle(d,t);}}catch(e){console.warn(e)}finally{processing=false}}if(engine)engine.update(t);raf=requestAnimationFrame(loop)}
+async function loop(t){
+  if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
+    processing=true;
+    try{
+      const vw=video.videoWidth||640, vh=video.videoHeight||360;
+      if(workCanvas.width!==vw) workCanvas.width=vw;
+      if(workCanvas.height!==vh) workCanvas.height=vh;
+      workCtx.drawImage(video,0,0,vw,vh);
+      const ds=await adapter.detectFrame(workCanvas);
+      drawDetections(ds);
+      if(ds.length){
+        set('tag',ds[0].id);
+        set('status','🟢 NHẬN TAG '+ds[0].id);
+        engine.handle(ds[0],t);
+      }else{
+        set('status','🔎 ĐANG QUÉT APRILTAG 36h11...');
+      }
+    }catch(e){
+      console.warn('AprilTag detect error',e);
+      set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
+    }finally{processing=false}
+  }
+  if(engine) engine.update(t);
+  raf=requestAnimationFrame(loop);
+}
 
 document.addEventListener('DOMContentLoaded',async()=>{
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
