@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.4-TOTAL18-LOCK';
+const DEPLOY_VERSION='V1.2.7-TOTAL18-SYNC-BAOBAI';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -200,16 +200,20 @@ class CourseRule{
        this.commandPlayed=true;
        this.state=2;
        this.startedAt=t;
-       // Đồng hồ tổng 18 phút chỉ khởi động MỘT LẦN sau khi baobai.mp3 phát thành công.
+       // ĐỒNG HỒ TỔNG 18 PHÚT BẮT ĐẦU NGAY CÙNG LÚC GỌI PHÁT baobai.mp3.
+       // Không chờ Promise của audio; mốc thời gian dùng chính tick t này.
+       const totalStarted=engine&&engine.startTotal18(t);
        const p=this.audio('baobai.mp3');
-       Promise.resolve(p).then(ok=>{
-         if(ok&&engine&&engine.result==='RUNNING'){
-           if(engine.startTotal18(t)){
-             set('startBtn','⏱ 18:00');
-             event('B01_BA0BAI_COMMAND',{afterMs:20000,totalLimitMs:18*60*1000});
-           }
-         }
-       }).catch(()=>{});
+       if(totalStarted){
+         set('startBtn','⏳ ĐANG THI — 18 PHÚT TOÀN BÀI');
+         set('totalTimer','18:00');
+         event('B01_BA0BAI_COMMAND',{
+           afterMs:Math.round(t-this.initAtForCommand || 20000),
+           totalLimitMs:18*60*1000,
+           timerStartsSameTick:true
+         });
+       }
+       Promise.resolve(p).catch(()=>{});
      }
    }
    if(this.state===2){
@@ -243,7 +247,7 @@ class CourseRule{
 }
 
 class ExamEngine{
- constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false;this.total18Expired=false;this.total18NextReminderAt=0;}
+ constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false;this.total18Expired=false;this.total18NextReminderAt=0;}
  startTotal18(t){
    if(this.total18StartAt||this.tag141Seen)return false;
    this.total18StartAt=t;
@@ -272,7 +276,28 @@ class ExamEngine{
      }
    }
    this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area);this.stableAt=0}}else this.stableAt=0}
-   if(this.current.is_finished){const finished=this.current.key;if(finished==='KT'){this.result='COMPLETED';this.totalElapsed=Date.now()-this.startedAt;event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});set('status','HOÀN THÀNH');alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);set('course','HOÀN THÀNH');this.current=null}else{set('status',this.current.result==='PASS'?'ĐẠT':'CÓ LỖI');set('startBtn','▶ BẮT ĐẦU');const rb=$('retryBtn');if(rb)rb.classList.remove('hidden');this.current=null}}
+   if(this.current.is_finished){
+     const finished=this.current.key;
+     if(finished==='KT'){
+       this.result='COMPLETED';
+       this.totalElapsed=Date.now()-this.startedAt;
+       event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});
+       set('status','HOÀN THÀNH');
+       alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);
+       set('course','HOÀN THÀNH');
+       set('startBtn','✅ HOÀN THÀNH — THI LẠI ĐỂ BẮT ĐẦU');
+       this.current=null;
+     }else{
+       set('status',this.current.result==='PASS'?'ĐẠT — TIẾP TỤC BÀI TIẾP THEO':'CÓ LỖI — TIẾP TỤC BÀI TIẾP THEO');
+       if(finished==='b01' && this.total18StartAt && !this.tag141Seen){
+         // TAG 111 chỉ kết thúc B01, tuyệt đối không kết thúc bộ đếm 18 phút.
+         const remain=Math.max(0,this.total18DeadlineAt-t); set('totalTimer',fmtTotal18Countdown(this.total18DeadlineAt,t));
+         event('B01_FINISHED_GLOBAL_TIMER_CONTINUES',{remainMs:remain});
+       }
+       const rb=$('retryBtn');if(rb)rb.classList.remove('hidden');
+       this.current=null;
+     }
+   }
  }
  update(t){
    if(this.result!=='RUNNING')return;
@@ -287,10 +312,9 @@ class ExamEngine{
    // Khi thấy TAG 141 thì dừng kiểm soát timeout 18 phút.
    // INVARIANT: total18StartAt chỉ được set một lần bởi B01/baobai.mp3; các TAG/Bài sau không reset.
    if(this.total18StartAt&&!this.tag141Seen&&!this.total18Expired){
-     const remain=Math.max(0,this.total18DeadlineAt-t);
-     const mm=Math.floor(remain/60000), ss=Math.ceil((remain%60000)/1000);
-     const totalText=`${mm}:${String(ss).padStart(2,'0')}`;
+     const remain=Math.max(0,this.total18DeadlineAt-t); const totalText=fmtTotal18Countdown(this.total18DeadlineAt,t);
      set('totalTimer',totalText);
+     // Đây là đồng hồ TOÀN BÀI, không phụ thuộc current/B01/B02/.../KT.
      if(remain<=0){
        this.total18Expired=true;
        if(!this.total18NextReminderAt){
@@ -331,6 +355,14 @@ class ExamEngine{
      }
    }
  }
+}
+function fmtTotal18Countdown(deadlineMs, nowMs){
+  const remainingMs=Math.max(0,deadlineMs-nowMs);
+  // Đếm theo GIÂY: sau 5 giây từ 18:00 sẽ hiển thị 17:55.
+  const totalSec=Math.ceil(remainingMs/1000);
+  const mm=Math.floor(totalSec/60);
+  const ss=totalSec%60;
+  return `${mm}:${String(ss).padStart(2,'0')}`;
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
