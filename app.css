@@ -4,4 +4,4 @@
 
 #appVersionBadge{font-size:11px;padding:4px 8px;border-radius:999px;background:#111;color:#fff;margin-left:auto;letter-spacing:.2px}
 
-.bottom-actions{padding:0 12px 18px;text-align:center}.retry-btn{width:100%;background:#1677ff;color:#fff;font-size:18px;padding:15px;border-radius:14px}.start-btn.running{opacity:.9}
+.bottom-actions{padding:8px 12px 76px;text-align:center;position:relative;z-index:20}.retry-btn{width:100%;background:#1677ff;color:#fff;font-size:18px;padding:15px;border-radius:14px}.start-btn.running{opacity:.9}
