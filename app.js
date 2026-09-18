@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.3-RETRY-AUTO-TAG01';
+const DEPLOY_VERSION='V1.2.4-TOTAL18-LOCK';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -177,7 +177,7 @@ class CourseRule{
  reset(){this.state=0;this.is_finished=false;this.startedAt=0;this.areaHistory=[];this.cachedArea=0;this.warnedTimeout=false;this.warnedRollback=false;this.stopFrameCount=0;this.lastCx=-1;this.lastCy=-1;this.delayAt=0;this.distanceMeters=this.d.distanceMeters||30;this.result=null;this.commandPlayed=false;this.total18StartAt=0;this.total18DeadlineAt=0}
  init(t){this.reset();this.loadCalib();if(this.key==='b01'){this.startedAt=t;this.state=1;this.audio('doilenh.mp3')}else{play(this.key,'baobai.mp3',this.d.name)}event('COURSE_INIT',{course:this.key});}
  loadCalib(){try{const c=JSON.parse(localStorage.getItem('sahinh_calib_'+this.key)||'null');if(c){if(c.areaMin)this.d.areaMin=c.areaMin;if(c.areaMax)this.d.areaMax=c.areaMax;}}catch(_){} }
- audio(file,text){play(this.key,file,text)}
+ audio(file,text){return play(this.key,file,text)}
  elapsed(t=Date.now()){return this.startedAt?((t-this.startedAt)/1000):0}
  matchesStart(tag){ return tag===this.d.start || tag===this.d.backupStart; }
  process(tag,area,visible,center,t){
@@ -197,22 +197,19 @@ class CourseRule{
    if(this.state===1){
      if(t-this.startedAt<20000)return 'LOCKED_20S';
      if(!this.commandPlayed){
-       this.audio('baobai.mp3');
        this.commandPlayed=true;
        this.state=2;
        this.startedAt=t;
-       // TỔNG 18 PHÚT bắt đầu đúng thời điểm phát baobai.mp3.
-       this.total18StartAt=t;
-       this.total18DeadlineAt=t+18*60*1000;
-       if(engine){
-         engine.total18StartAt=t;
-         engine.total18DeadlineAt=t+18*60*1000;
-         engine.tag141Seen=false;
-         engine.total18Expired=false;
-       }
-       set('totalTimer','18:00');
-       set('startBtn','⏱ 18:00');
-       event('B01_BA0BAI_COMMAND',{afterMs:20000,totalLimitMs:18*60*1000});
+       // Đồng hồ tổng 18 phút chỉ khởi động MỘT LẦN sau khi baobai.mp3 phát thành công.
+       const p=this.audio('baobai.mp3');
+       Promise.resolve(p).then(ok=>{
+         if(ok&&engine&&engine.result==='RUNNING'){
+           if(engine.startTotal18(t)){
+             set('startBtn','⏱ 18:00');
+             event('B01_BA0BAI_COMMAND',{afterMs:20000,totalLimitMs:18*60*1000});
+           }
+         }
+       }).catch(()=>{});
      }
    }
    if(this.state===2){
@@ -247,6 +244,16 @@ class CourseRule{
 
 class ExamEngine{
  constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false;this.total18Expired=false;this.total18NextReminderAt=0;}
+ startTotal18(t){
+   if(this.total18StartAt||this.tag141Seen)return false;
+   this.total18StartAt=t;
+   this.total18DeadlineAt=t+18*60*1000;
+   this.total18Expired=false;
+   this.total18NextReminderAt=0;
+   set('totalTimer','18:00');
+   event('TOTAL18_STARTED',{source:'B01_baobai',totalLimitMs:18*60*1000});
+   return true;
+ }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
  announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
@@ -278,6 +285,7 @@ class ExamEngine{
    set('timer',fmt(Date.now()-this.startedAt));
    // TỔNG 18 PHÚT: tính từ lúc phát baobai.mp3, áp dụng cho toàn bộ bài thi.
    // Khi thấy TAG 141 thì dừng kiểm soát timeout 18 phút.
+   // INVARIANT: total18StartAt chỉ được set một lần bởi B01/baobai.mp3; các TAG/Bài sau không reset.
    if(this.total18StartAt&&!this.tag141Seen&&!this.total18Expired){
      const remain=Math.max(0,this.total18DeadlineAt-t);
      const mm=Math.floor(remain/60000), ss=Math.ceil((remain%60000)/1000);
