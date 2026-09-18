@@ -1,4 +1,4 @@
-const APP_VERSION = 'V1.0.2-BATDAU-CAMERA';
+const APP_VERSION = 'V1.0.4-TAG-ROBUST';
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
@@ -22,7 +22,7 @@ const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
 let video,workCanvas,workCtx,overlay,overlayCtx,adapter;
-let engine=null,raf=0,processing=false,detectorErrorShown=false;
+let engine=null,raf=0,processing=false,detectorErrorShown=false,tagConfirmId=null,tagConfirmCount=0,tagConfirmAt=0;
 
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
@@ -367,10 +367,27 @@ async function loop(t){
       workCtx.drawImage(video,0,0,workCanvas.width,workCanvas.height);
       const ds=await adapter.detectFrame(workCanvas);
       drawDetections(ds);
-      set('status', ds.length ? 'NHẬN TAG '+ds[0].id : 'ĐANG QUÉT APRILTAG...');
       if(ds.length){
         const d=ds[0];
-        engine.handle(d,t);
+        set('tag','TAG '+d.id);
+        if(tagConfirmId===d.id && t-tagConfirmAt<1200){
+          tagConfirmCount++;
+        }else{
+          tagConfirmId=d.id;
+          tagConfirmCount=1;
+        }
+        tagConfirmAt=t;
+        if(tagConfirmCount>=2){
+          set('status','🟢 TAG '+d.id+' — ĐÃ XÁC NHẬN');
+          engine.handle(d,t);
+        }else{
+          set('status','🟡 PHÁT HIỆN TAG '+d.id+' — ĐANG XÁC NHẬN...');
+        }
+      }else{
+        tagConfirmId=null;
+        tagConfirmCount=0;
+        set('tag','--');
+        set('status', engine ? '🔎 ĐANG QUÉT APRILTAG 36h11...' : 'CHỜ BẮT ĐẦU');
       }
     }catch(e){
       console.error('AprilTag detect error:',e);
