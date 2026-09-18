@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.3.8-AUDIO-NAME-BATDAU';
+const DEPLOY_VERSION='V1.4.0-B03-POSITION-TUT-THITRUOT';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -103,7 +103,7 @@ function preloadLocalAudio(){
       list.push('./audio/b01/qua30s.mp3');
     }
   }
-  list.push('./audio/THKC/THKC.mp3','./audio/THKC/saiquytrinh.mp3','./audio/KT/hoanthanh.mp3','./audio/quatong.mp3');
+  list.push('./audio/THKC/THKC.mp3','./audio/THKC/saiquytrinh.mp3','./audio/KT/hoanthanh.mp3','./audio/quatong.mp3','./audio/thitruot.mp3');
   [...new Set(list)].forEach(src=>{const a=new Audio();a.preload='auto';a.src=src;});
 }
 function reportAudioError(src, err, note=''){
@@ -170,6 +170,35 @@ async function playSharedAudio(file){
     activeAudio=a;a.currentTime=0;a.muted=false;await a.play();
     set('status',`🔊 ĐANG PHÁT: ${src}`);return true;
   }catch(e){reportAudioError(src,e,'Kiểm tra file MP3 và đường dẫn trong thư mục audio/');return false;}
+}
+
+async function playErrorSequence(course,primary,text=''){
+  // Phát âm thanh lỗi chính hoàn tất rồi mới phát THI TRƯỢT.
+  const src=localAudioPath(course,primary);
+  const seqBefore=audioPlaySeq;
+  const ok=await playDirect(course,primary,text);
+  if(!ok)return false;
+  const a=src?audioMem.get(src):null;
+  if(a && !a.ended){
+    await new Promise(resolve=>{
+      let settled=false;
+      const finish=()=>{
+        if(settled)return;
+        settled=true;
+        a.removeEventListener('ended',finish);
+        a.removeEventListener('error',finish);
+        resolve();
+      };
+      a.addEventListener('ended',finish,{once:true});
+      a.addEventListener('error',finish,{once:true});
+      const watchdog=setInterval(()=>{
+        if(settled){clearInterval(watchdog);return;}
+        if(audioPlaySeq!==seqBefore+1){clearInterval(watchdog);finish();}
+      },100);
+    });
+  }
+  if(audioPlaySeq!==seqBefore+1)return false;
+  return playSharedAudio('thitruot.mp3');
 }
 function initGasConfig(){
   const input=$('gasUrl'), btn=$('saveGasBtn');
@@ -476,6 +505,24 @@ class CourseRule{
    const exactStartTag=(tag===this.d.start);
    const exactCheckTag=(tag===this.d.check);
 
+   // B03 vẫn dùng quy tắc vị trí tại TAG 32, đồng thời giám sát tụt dốc.
+   if(this.key==='b03' && this.state>=1 && exactCheckTag && visible && Number(area)>0){
+     this.areaHistory.push(Number(area));
+     if(this.areaHistory.length>15)this.areaHistory.shift();
+     this.cachedArea=Number(area);
+     this.rollback(area);
+
+     // Chỉ khi TAG 32 còn được quét sau đủ 30s kể từ lúc báo DỪNG XE mới lỗi quá 30s.
+     if(this.state===2 && this.delayAt>0 && t-this.delayAt>=30000 && !this.warnedTimeout){
+       this.warnedTimeout=true;
+       this.audio('qua30s.mp3');
+       event('B03_TIMEOUT_30S',{checkTag:this.d.check,afterMs:Math.round(t-this.delayAt)});
+       set('status','⛔ B03 — QUÁ 30s — VẪN CÒN TAG 32');
+       this.finish('TIMEOUT','Còn quét thấy TAG 32 sau 30 giây');
+       return 'TIMEOUT_30S';
+     }
+   }
+
    // IMPORTANT:
    // TAG báo bài (ví dụ 02/03/08/10/12) chỉ phát baobai.mp3 trong init().
    // TAG vào bài (21/31/81/101/121) mới được phép phát batdau.mp3.
@@ -490,6 +537,16 @@ class CourseRule{
 
      this.state=1;
      this.startedAt=t;
+
+     if(this.key==='b03'){
+       this.areaHistory=[];
+       this.warnedTimeout=false;
+       this.warnedRollback=false;
+       this.delayAt=0;
+       this.stopConfirmed=false;
+       this.positionResult=null;
+       this.positionCorrect=false;
+     }
 
      if(isRepeatTimed){
        this.repeatStartTagCount=1;
@@ -551,8 +608,69 @@ class CourseRule{
  b08(tag,visible,t){if((this.state===1||this.state===2)&&this.startedAt&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 8');this.state=3}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===82&&visible){this.audio('dung.mp3');this.state=2}else if(this.state===2&&this.matchesStart(tag)&&visible){this.finish('PASS','Hoàn thành bài 8');this.state=3}}
  b11(tag,visible,t){if(this.state===1&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 11')}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===113&&visible){const duration=Math.max(.1,(t-this.startedAt)/1000),speed=(this.distanceMeters/duration)*3.6;this.result=speed>=25?'PASS':'LOW_SPEED';this.audio(speed>=25?'tunv.mp3':'thieutoc.mp3',speed>=25?'Tunv':'Sai tốc độ quy định');event('SPEED_RESULT',{course:'b11',speedKmh:Number(speed.toFixed(1)),duration:Number(duration.toFixed(2))});this.finish(this.result,speed>=25?'Đạt tốc độ':'Sai tốc độ');this.state=2}}
  kt(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&t-this.startedAt>=5000){this.audio('hoanthanh.mp3');this.finish('FINAL','Hoàn thành sa hình');this.state=2}}
- checkTarget(area){
+ checkTarget(area,t=performance.now()){
    if(this.is_finished)return;
+
+   if(this.key==='b03'){
+     const a=Number(area||this.cachedArea||0);
+     if(!(a>0))return;
+     this.cachedArea=a;
+
+     // TAG 32 ổn định: báo DỪNG XE và bắt đầu đúng 30 giây tính thời gian dốc.
+     if(!this.stopConfirmed){
+       this.stopConfirmed=true;
+       this.positionChecked=true;
+       this.positionReferenceTag=Number(this.d.check||32);
+       this.delayAt=t;
+       this.state=2;
+       this.audio('dungxe.mp3');
+       event('B03_STOP_CONFIRMED',{tag:this.d.check,area:Math.round(a),timerMs:30000,stableMs:STABLE_MS});
+       set('status','B03 — DỪNG XE — BẮT ĐẦU ĐẾM 30s');
+     }
+
+     showPositionConfirm(true,this.key);
+
+     // B03 vẫn có luật vị trí ±5% như điểm dừng: CHƯA ĐẾN / ĐÚNG VỊ TRÍ / QUÁ VỊ TRÍ.
+     if(this.positionReferenceArea>0){
+       const ev=comparePositionReference(this.key,a);
+       if(ev){
+         const changed=this.positionResult!==ev.result;
+         this.positionResult=ev.result;
+         this.positionCorrect=(ev.result==='DUNG_VI_TRI');
+
+         if(changed){
+           if(ev.result==='QUA_VI_TRI'){
+             this.playErrorSequence('quavitri.mp3','Quá vị trí');
+           }else if(ev.result==='CHUA_DEN'){
+             this.audio('chuaden.mp3');
+           }
+
+           set('status',
+             ev.result==='DUNG_VI_TRI'
+               ? `✅ B03 — ĐÚNG VỊ TRÍ (${Math.round(ev.currentArea)})`
+               : ev.result==='CHUA_DEN'
+                 ? `⚠️ B03 — CHƯA ĐẾN VỊ TRÍ (${Math.round(ev.currentArea)})`
+                 : `⛔ B03 — QUÁ VỊ TRÍ (${Math.round(ev.currentArea)}) — THI TRƯỢT`
+           );
+
+           event('POSITION_COMPARE',{
+             course:this.key,
+             refArea:Math.round(ev.ref),
+             currentArea:Math.round(ev.currentArea),
+             minAllowed:Math.round(ev.min),
+             maxAllowed:Math.round(ev.max),
+             tolerancePct:5,
+             result:ev.result,
+             audio:ev.audio||'none',
+             followedBy:ev.result==='QUA_VI_TRI'?'thitruot.mp3':null
+           });
+         }
+       }
+     }else{
+       set('status',`B03 — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN GHI NHẬN ĐÚNG VỊ TRÍ`);
+     }
+     return;
+   }
 
    if(isPositionRuleCourse(this.key)){
      const a=this.cachedArea>0?this.cachedArea:area;
@@ -612,6 +730,20 @@ class CourseRule{
      return;
    }
  }
+ rollback(area){
+   const a=Number(area||0);
+   if(!(a>0)||this.areaHistory.length<5||this.warnedRollback)return;
+   const prior=this.areaHistory.slice(0,-1);
+   if(!prior.length)return;
+   const avg=prior.reduce((sum,v)=>sum+v,0)/prior.length;
+   // Dấu hiệu tụt dốc: diện tích TAG 32 giảm mạnh so với trung bình các mẫu trước đó.
+   if(a<avg*0.9){
+     this.warnedRollback=true;
+     this.playErrorSequence('tutdoc.mp3','Tụt dốc');
+     event('B03_ROLLBACK',{tag:this.d.check,area:Math.round(a),averagePriorArea:Math.round(avg),threshold:Math.round(avg*0.9)});
+     set('status','⛔ B03 — PHÁT HIỆN TỤT DỐC — THI TRƯỢT');
+   }
+ }
  areaResult(a){let result='PASS';if(a<this.d.areaMin){result='EARLY';this.audio('chuaden.mp3')}else if(a<=this.d.areaMax){this.audio('dung.mp3')}else{result='LATE';this.audio('quavitri.mp3')}this.result=result;event('TARGET_RESULT',{course:this.key,area:Math.round(a),areaMin:this.d.areaMin,areaMax:this.d.areaMax,result});}
  finish(result='PASS',message='Hoàn thành'){if(this.is_finished)return;this.result=result;this.is_finished=true;event('COURSE_COMPLETED',{course:this.key,result,message});set('status',result==='PASS'||result==='FINAL'?'ĐẠT':'CẢNH BÁO');}
 }
@@ -651,7 +783,7 @@ class ExamEngine{
        event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
      }
    }
-   this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area);this.stableAt=0}}else this.stableAt=0}
+   this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0}}else this.stableAt=0}
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
@@ -727,6 +859,13 @@ class ExamEngine{
          });
          set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATGBAI`);
          this.current.finish('TIMEOUT',`Quá 120s — chưa thấy TAG ${this.current.d.start} lần 2`);
+       }
+     }else if(this.current.key==='b03' && this.current.delayAt>0){
+       const remain30=Math.max(0,30000-(t-this.current.delayAt));
+       set('courseTimer',`${Math.ceil(remain30/1000)}s`);
+       if(remain30<=0 && !this.current.warnedTimeout && !this.current.is_finished){
+         // Chỉ xử lý quá 30s khi detector của vòng handle còn thấy chính TAG 32.
+         // Không tự phát cảnh báo nếu TAG 32 đã rời khung.
        }
      }else if(this.current.key==='b01'){
        if(this.current.state===1){
