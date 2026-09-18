@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.3.7-TAG-SEPARATION';
+const DEPLOY_VERSION='V1.3.8-AUDIO-NAME-BATDAU';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -98,7 +98,7 @@ function preloadLocalAudio(){
   for(const c of Object.keys(AUDIO_COURSE_DIR)){
     if(c==='thkc') continue;
     const dir=AUDIO_COURSE_DIR[c];
-    for(const f of ['baobai.mp3','vaobai.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','quatgbai.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
+    for(const f of ['baobai.mp3','batdau.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','quatgbai.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
     if(c==='b01'){
       list.push('./audio/b01/qua30s.mp3');
     }
@@ -397,7 +397,7 @@ class CourseRule{
     this.audio('doilenh.mp3');
   }else{
     // TAG BÁO BÀI đã được ExamEngine.announce() xác nhận.
-    // Chỉ tại đây mới phát baobai.mp3. Không phát vaobai.mp3 ở bước này.
+    // Chỉ tại đây mới phát baobai.mp3. Không phát batdau.mp3 ở bước này.
     this.audio('baobai.mp3');
     event('COURSE_ANNOUNCE_AUDIO',{
       course:this.key,
@@ -478,14 +478,14 @@ class CourseRule{
 
    // IMPORTANT:
    // TAG báo bài (ví dụ 02/03/08/10/12) chỉ phát baobai.mp3 trong init().
-   // TAG vào bài (21/31/81/101/121) mới được phép phát vaobai.mp3.
+   // TAG vào bài (21/31/81/101/121) mới được phép phát batdau.mp3.
    if(this.state===0&&exactStartTag&&visible){
-     this.audio('vaobai.mp3');
+     this.audio('batdau.mp3');
      event('COURSE_START_AUDIO',{
        course:this.key,
        startTag:tag,
        announceTag:this.d.announce,
-       audio:'vaobai.mp3'
+       audio:'batdau.mp3'
      });
 
      this.state=1;
