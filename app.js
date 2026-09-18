@@ -274,7 +274,25 @@ class ExamEngine{
    const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area);this.stableAt=0}}else this.stableAt=0}
    if(this.current.is_finished){const finished=this.current.key;if(finished==='KT'){this.result='COMPLETED';this.totalElapsed=Date.now()-this.startedAt;event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});set('status','HOÀN THÀNH');alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);set('course','HOÀN THÀNH');this.current=null;const sb=$('startBtn');if(sb){sb.textContent='🔄 THI LẠI';sb.disabled=false;sb.classList.remove('running')}}else{set('status',this.current.result==='PASS'?'ĐẠT':'CÓ LỖI');this.current=null}}
  }
- update(t){
+  resetToB01(){
+    this.rules=ORDER.map(k=>new CourseRule(k));
+    this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));
+    this.index=-1;
+    this.current=null;
+    this.finished=false;
+    this.tagLockUntil=0;
+    this.b01CommandAt=0;
+    this.b01DeadlineAt=0;
+    this.total18StartAt=0;
+    this.total18DeadlineAt=0;
+    set('status','SẴN SÀNG — BẮT ĐẦU LẠI TỪ BÀI 01');
+    set('tag','--');
+    set('courseTimer','--');
+    set('totalTimer','18:00');
+    event('RESET_TO_B01',{});
+  }
+
+  update(t){
    if(this.result!=='RUNNING')return;
    if(this.b01CommandAt&&t>=this.b01CommandAt&&this.current?.key==='b01'&&this.current.state===1){
      // Hết 20s: phát XP và chuyển sang cửa sổ chờ TAG 111 = 30s.
@@ -377,3 +395,13 @@ document.addEventListener('DOMContentLoaded',async()=>{
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
 });
+
+window.resetToB01 = function(){
+  try{
+    if(window.engine && typeof window.engine.resetToB01==='function'){
+      window.engine.resetToB01();
+      return;
+    }
+    location.reload();
+  }catch(e){ location.reload(); }
+};
