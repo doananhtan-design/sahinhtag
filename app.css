@@ -5,3 +5,36 @@
 #appVersionBadge{font-size:11px;padding:4px 8px;border-radius:999px;background:#111;color:#fff;margin-left:auto;letter-spacing:.2px}
 
 .bottom-actions{padding:8px 12px 76px;text-align:center;position:relative;z-index:20}.retry-btn{width:100%;background:#1677ff;color:#fff;font-size:18px;padding:15px;border-radius:14px;cursor:pointer;pointer-events:auto;position:relative;z-index:50;touch-action:manipulation}.start-btn.running{opacity:.9}
+
+.total-clock{
+  position:sticky;
+  top:0;
+  z-index:40;
+  margin:10px 12px 12px;
+  padding:12px 14px 13px;
+  border-radius:18px;
+  background:#071a33;
+  border:2px solid #1677ff;
+  box-shadow:0 8px 28px #0006;
+  text-align:center;
+}
+.total-clock-label{
+  font-size:12px;
+  font-weight:900;
+  letter-spacing:.4px;
+  color:#b9d8ff;
+}
+.total-clock-value{
+  margin-top:2px;
+  font-size:40px;
+  line-height:1.05;
+  font-weight:1000;
+  letter-spacing:1px;
+  color:#fff;
+  font-variant-numeric:tabular-nums;
+}
+.total-clock-hint{
+  margin-top:4px;
+  font-size:11px;
+  color:#8fb0d7;
+}

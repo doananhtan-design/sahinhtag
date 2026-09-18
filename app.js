@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.2.8-TOTAL18-HARD-TIMER';
+const DEPLOY_VERSION='V1.2.9-VISIBLE-TOTAL18';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -32,7 +32,10 @@ function renderTotal18Timer(engineRef){
   const totalSec=Math.ceil(remain/1000);
   const mm=Math.floor(totalSec/60);
   const ss=totalSec%60;
-  set('totalTimer',`${mm}:${String(ss).padStart(2,'0')}`);
+  const display=`${mm}:${String(ss).padStart(2,'0')}`;
+  set('totalTimer',display);
+  set('totalTimerBig',display);
+  set('totalClockHint',engineRef.total18Expired?'Đã hết 18 phút — đang chờ TAG 141':'Đếm liên tục từ B01 đến KT');
 }
 function stopTotal18Ticker(){
   if(total18Ticker){clearInterval(total18Ticker);total18Ticker=0;}
@@ -231,7 +234,7 @@ class CourseRule{
        const p=this.audio('baobai.mp3');
        if(totalStarted){
          set('startBtn','⏳ ĐANG THI — 18 PHÚT TOÀN BÀI');
-         set('totalTimer','18:00');
+         set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
          event('B01_BA0BAI_COMMAND',{
            afterMs:Math.max(0,Math.round(t-this.initAtForCommand)),
            totalLimitMs:18*60*1000,
@@ -280,7 +283,7 @@ class ExamEngine{
    this.total18DeadlineAt=startAt+18*60*1000;
    this.total18Expired=false;
    this.total18NextReminderAt=0;
-   set('totalTimer','18:00');
+   set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
    startTotal18Ticker(this);
    event('TOTAL18_STARTED',{source:'B01_baobai',totalLimitMs:18*60*1000});
    return true;
@@ -344,7 +347,7 @@ class ExamEngine{
      // Đồng hồ tổng được điều khiển bởi total18Ticker độc lập với detector.
      if(remain<=0){
        this.total18Expired=true;
-       set('totalTimer','00:00');
+       set('totalTimer','00:00');set('totalTimerBig','00:00');set('totalClockHint','Đã hết 18 phút — đang chờ TAG 141');
        stopTotal18Ticker();
        if(!this.total18NextReminderAt){
          this.total18NextReminderAt=t;
@@ -414,7 +417,7 @@ async function startExam(){
   }
   engine=new ExamEngine();
   set('status','ĐỢI XUẤT PHÁT — CHỜ TAG 01');
-  set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');
+  set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
 }
 async function retryExam(){
@@ -439,7 +442,7 @@ async function retryExam(){
   set('timer','00:00');
   set('stable','0.0s');
   set('courseTimer','--');
-  set('totalTimer','18:00');
+  set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
   const alert=$('alert');
   if(alert){alert.classList.add('hidden');alert.textContent='';}
   try{clearOverlay()}catch(_){}
@@ -463,7 +466,7 @@ async function retryExam(){
     set('tag','--');
     set('timer','00:00');
     set('courseTimer','--');
-    set('totalTimer','18:00');
+    set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
     persist();
     event('RETRY_EXAM',{resetAllTimers:true,nextCourse:'B01',nextTag:1,autoStart:true});
   }catch(e){
