@@ -21,7 +21,7 @@ const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
 let video,workCanvas,workCtx,overlay,overlayCtx,adapter;
-let engine=null,raf=0,processing=false;
+let engine=null,raf=0,processing=false,detectorErrorShown=false;
 
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
@@ -232,9 +232,34 @@ class ExamEngine{
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
-async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();set('status','ĐANG THI');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
+async function startExam(){if(!window.currentTeacher){alertMsg('Chưa đăng nhập giáo viên');return}if(!await openCamera())return;engine=new ExamEngine();detectorErrorShown=false;set('status','ĐANG THI — BẮT ĐẦU QUÉT APRILTAG');set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU BÀI THI');}
 function finishLocal(){if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
-async function loop(t){if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){processing=true;try{workCanvas.width=video.videoWidth||640;workCanvas.height=video.videoHeight||360;workCtx.drawImage(video,0,0,workCanvas.width,workCanvas.height);const ds=await adapter.detectFrame(workCanvas);drawDetections(ds);if(ds.length){const d=ds[0];engine.handle(d,t);}}catch(e){console.warn(e)}finally{processing=false}}if(engine)engine.update(t);raf=requestAnimationFrame(loop)}
+async function loop(t){
+  if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
+    processing=true;
+    try{
+      workCanvas.width=video.videoWidth||640;
+      workCanvas.height=video.videoHeight||360;
+      workCtx.drawImage(video,0,0,workCanvas.width,workCanvas.height);
+      const ds=await adapter.detectFrame(workCanvas);
+      drawDetections(ds);
+      set('status', ds.length ? 'NHẬN TAG '+ds[0].id : 'ĐANG QUÉT APRILTAG...');
+      if(ds.length){
+        const d=ds[0];
+        engine.handle(d,t);
+      }
+    }catch(e){
+      console.error('AprilTag detect error:',e);
+      if(!detectorErrorShown){
+        detectorErrorShown=true;
+        set('status','LỖI NHẬN TAG: '+(e?.message||e));
+        alertMsg('Lỗi bộ nhận diện AprilTag: '+(e?.message||e),8000);
+      }
+    }finally{processing=false}
+  }
+  if(engine)engine.update(t);
+  raf=requestAnimationFrame(loop)
+}
 
 document.addEventListener('DOMContentLoaded',async()=>{
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
