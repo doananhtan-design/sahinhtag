@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.2-SECONDARY-COUNTDOWN';
+const DEPLOY_VERSION='V1.4.3-NEAREST-TAG';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -239,6 +239,18 @@ function event(type,data={}){if(!engine)return;engine.events.push({at:new Date()
 function persist(){if(engine)localStorage.setItem('sahinh_exam_v2',JSON.stringify(engine));}
 function alertMsg(text,ms=3500){const e=$('alert');e.textContent=text;e.classList.remove('hidden');clearTimeout(alertMsg.t);alertMsg.t=setTimeout(()=>e.classList.add('hidden'),ms)}
 function clearOverlay(){if(!overlayCtx)return;overlayCtx.clearRect(0,0,overlay.width,overlay.height)}
+function selectNearestTag(ds){
+  if(!Array.isArray(ds)||!ds.length)return [];
+  // Các TAG được in cùng kích thước: TAG gần camera nhất có diện tích ảnh lớn nhất.
+  // Chỉ đưa đúng TAG gần nhất vào engine; TAG ở xa không được xử lý luật/âm thanh.
+  let nearest=null;
+  for(const d of ds){
+    const area=Number(d?.area)||0;
+    if(!nearest || area>nearest.area) nearest={...d,area};
+  }
+  return nearest?[nearest]:[];
+}
+
 function drawDetections(ds){
   if(!overlayCtx||!video.videoWidth)return;
   overlay.width=video.videoWidth;overlay.height=video.videoHeight;clearOverlay();
@@ -1020,11 +1032,12 @@ async function loop(t){
       if(workCanvas.width!==vw) workCanvas.width=vw;
       if(workCanvas.height!==vh) workCanvas.height=vh;
       workCtx.drawImage(video,0,0,vw,vh);
-      const ds=await adapter.detectFrame(workCanvas);
+      const detected=await adapter.detectFrame(workCanvas);
+      const ds=selectNearestTag(detected);
       drawDetections(ds);
       if(ds.length){
         set('tag',ds[0].id);
-        set('status','🟢 NHẬN TAG '+ds[0].id);
+        set('status','🟢 NHẬN TAG GẦN NHẤT '+ds[0].id);
         engine.handle(ds[0],t);
       }else{
         if(engine?.current&&(engine.current.key==='b08'||engine.current.key==='b12')){

@@ -1,4 +1,4 @@
-const CACHE='sahinh-ai-pwa-v1.4.2-secondary-countdown';
+const CACHE='sahinh-ai-pwa-v1.4.3-nearest-tag';
 const ASSETS=['./','./index.html','./app.css','./app.js','./apriltag-adapter.js','./manifest.json','./gas-config.js','./icon-192.png','./icon-512.png','./audio/b01/doilenh.mp3','./audio/b01/baobai.mp3','./audio/b01/batdau.mp3','./audio/b01/qua30s.mp3','./audio/quatong.mp3'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
