@@ -1,0 +1,2 @@
+V1.4.15
+B14/KT: TAG 14 -> baobai.mp3; TAG 141 -> batdau.mp3; sau 3s -> hoanthanh.mp3 2 lan lien tiep. Fix B08/B12 TAG 82/123 bien area khong ton tai. Giữ B11 local speed và full audio.
