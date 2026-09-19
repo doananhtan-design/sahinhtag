@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.4-B08-B12-NO-POSITION';
+const DEPLOY_VERSION='V1.4.6-B08-B12-AUDIO-FIX';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -435,6 +435,7 @@ class CourseRule{
   this.repeatStartDeadlineAt=0;
   this.repeatStartDone=false;
   this.checkAudioPlayed=false;
+  this.checkAudioPending=false;
   this.positionReferenceTag=0;
   this.positionResult=null;
   this.positionCorrect=false;
@@ -532,7 +533,6 @@ class CourseRule{
  simpleTimed(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.state=1;this.startedAt=t;return}if(this.state===1){if(t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian')}}if(this.d.end&&tag===this.d.end&&visible)this.finish('PASS','Hoàn thành bài')} }
  instant(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.finish('PASS','Hoàn thành bài');this.state=1}}
  positionRule(tag,area,visible,t){
-   const isRepeatTimed=(this.key==='b08'||this.key==='b12');
    const exactStartTag=(tag===this.d.start);
    const exactCheckTag=(tag===this.d.check);
 
@@ -568,28 +568,6 @@ class CourseRule{
 
      this.state=1;
      this.startedAt=t;
-
-     if(this.key==='b08'||this.key==='b12'){
-     // B08/B12 KHÔNG kiểm tra vị trí. Nếu detector gọi checkTarget sau khi TAG 82/123 ổn định,
-     // chỉ bảo đảm phát DỪNG XE một lần, không tạo/so sánh mốc ±5% và không hiện nút ghi mốc.
-     if(!this.stopConfirmed){
-       this.stopConfirmed=true;
-       this.positionChecked=false;
-       this.positionReferenceTag=Number(this.d.check||0);
-       this.cachedArea=Number(area||this.cachedArea||0);
-       this.audio('dungxe.mp3');
-       event('REPEAT_CHECK_TARGET_STOP',{
-         course:this.key,
-         tag:this.d.check,
-         area:this.cachedArea>0?Math.round(this.cachedArea):null,
-         positionCheck:false,
-         audio:'dungxe.mp3'
-       });
-       set('status',`${this.key.toUpperCase()} — DỪNG XE — KHÔNG KIỂM TRA VỊ TRÍ`);
-     }
-     showPositionConfirm(false);
-     return;
-   }
 
   if(this.key==='b03'){
        this.areaHistory=[];
@@ -629,28 +607,6 @@ class CourseRule{
    }
 
    if(this.state===1){
-     // B08/B12: chỉ TAG vào bài thật sự (81/121) lần 2 mới kết thúc 120s.
-     if(isRepeatTimed&&exactStartTag&&visible){
-       if(this.repeatStartWaitingReturn){
-         return 'WAITING';
-       }
-
-       this.repeatStartTagCount=2;
-       this.repeatStartWaitingReturn=true;
-       this.repeatStartDone=true;
-       this.repeatStartDeadlineAt=0;
-
-       event('POSITION_RULE_SECOND_START_TAG',{
-         course:this.key,
-         startTag:tag,
-         elapsedMs:Math.max(0,t-(this.repeatStartAt||t))
-       });
-
-       set('status',`${this.key.toUpperCase()} — TAG ${tag} LẦN 2 — KẾT THÚC 120s`);
-       this.finish('PASS',`Hoàn thành ${this.key.toUpperCase()} — đủ 2 lần TAG vào bài`);
-       return 'FINISHED';
-     }
-
      if(exactCheckTag&&visible){
        this.cachedArea=area;
      }
@@ -674,6 +630,7 @@ class CourseRule{
      this.repeatStartDeadlineAt=t+120000;
      this.repeatStartDone=false;
      this.checkAudioPlayed=false;
+     this.checkAudioPending=false;
 
      set('status',`${this.key.toUpperCase()} — VÀO BÀI — 120s — CHỜ TAG ${this.d.start} LẦN 2`);
      event('REPEAT_120S_NO_POSITION_START',{
@@ -689,18 +646,40 @@ class CourseRule{
 
    if(this.state===1){
      // TAG kiểm tra (82/123) chỉ phát DỪNG XE một lần, tuyệt đối không so sánh diện tích.
-     if(exactCheckTag&&visible&&!this.checkAudioPlayed){
-       this.checkAudioPlayed=true;
+     // Chỉ chốt cờ khi phát audio thành công; nếu lần đầu lỗi/tạm thời chưa phát được,
+     // các frame tiếp theo còn thấy đúng TAG sẽ tự thử lại.
+     if(exactCheckTag&&visible&&!this.checkAudioPlayed&&!this.checkAudioPending){
+       this.checkAudioPending=true;
        this.cachedArea=Number(area||0);
-       this.audio('dungxe.mp3');
-       set('status',`${this.key.toUpperCase()} — TAG ${tag} — DỪNG XE`);
-       event('REPEAT_CHECK_TAG_STOP_AUDIO',{
-         course:this.key,
-         checkTag:tag,
-         area:this.cachedArea>0?Math.round(this.cachedArea):null,
-         positionCheck:false,
-         audio:'dungxe.mp3'
+       const playResult=this.audio('dungxe.mp3');
+       Promise.resolve(playResult).then(ok=>{
+         this.checkAudioPending=false;
+         if(ok){
+           this.checkAudioPlayed=true;
+           set('status',`${this.key.toUpperCase()} — TAG ${tag} — ĐÃ PHÁT dungxe.mp3`);
+           event('REPEAT_CHECK_TAG_STOP_AUDIO',{
+             course:this.key,
+             checkTag:tag,
+             area:this.cachedArea>0?Math.round(this.cachedArea):null,
+             positionCheck:false,
+             audio:'dungxe.mp3',
+             audioPath:`./audio/${this.key}/dungxe.mp3`,
+             playOk:true
+           });
+         }else{
+           event('REPEAT_CHECK_TAG_STOP_AUDIO_RETRY',{
+             course:this.key,
+             checkTag:tag,
+             audio:'dungxe.mp3',
+             audioPath:`./audio/${this.key}/dungxe.mp3`,
+             playOk:false
+           });
+         }
+       }).catch(err=>{
+         this.checkAudioPending=false;
+         reportAudioError(`./audio/${this.key}/dungxe.mp3`,err,'B08/B12 TAG kiểm tra — sẽ tự thử lại khi TAG vẫn còn');
        });
+       set('status',`${this.key.toUpperCase()} — TAG ${tag} — PHÁT dungxe.mp3...`);
        return 'CHECK_STOP_AUDIO';
      }
 
@@ -724,7 +703,6 @@ class CourseRule{
    }
    return 'WAITING';
  }
- b08(tag,visible,t){if((this.state===1||this.state===2)&&this.startedAt&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 8');this.state=3}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===82&&visible){this.audio('dung.mp3');this.state=2}else if(this.state===2&&this.matchesStart(tag)&&visible){this.finish('PASS','Hoàn thành bài 8');this.state=3}}
  b11(tag,visible,t){if(this.state===1&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 11')}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===113&&visible){const duration=Math.max(.1,(t-this.startedAt)/1000),speed=(this.distanceMeters/duration)*3.6;this.result=speed>=25?'PASS':'LOW_SPEED';this.audio(speed>=25?'tunv.mp3':'thieutoc.mp3',speed>=25?'Tunv':'Sai tốc độ quy định');event('SPEED_RESULT',{course:'b11',speedKmh:Number(speed.toFixed(1)),duration:Number(duration.toFixed(2))});this.finish(this.result,speed>=25?'Đạt tốc độ':'Sai tốc độ');this.state=2}}
  kt(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&t-this.startedAt>=5000){this.audio('hoanthanh.mp3');this.finish('FINAL','Hoàn thành sa hình');this.state=2}}
  checkTarget(area,t=performance.now()){

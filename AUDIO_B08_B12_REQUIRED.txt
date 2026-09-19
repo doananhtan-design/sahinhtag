@@ -1,0 +1,3 @@
+B08: ./audio/b08/dungxe.mp3
+B12: ./audio/b12/dungxe.mp3
+Các file MP3 phải được đặt đúng đường dẫn. Code sẽ báo chính xác đường dẫn nếu không phát được.
