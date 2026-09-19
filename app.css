@@ -2,7 +2,7 @@
 
 .boot-sync{display:flex;align-items:center;gap:9px;padding:10px 12px;margin:0 0 14px;border-radius:12px;background:#eef6ff;color:#175cd3;font-size:13px;font-weight:700}.sync-dot{width:9px;height:9px;border-radius:50%;background:#1677ff;box-shadow:0 0 0 5px #dbeafe;animation:pulse 1.2s infinite}@keyframes pulse{50%{opacity:.35}}.boot-sync.ready{background:#ecfdf3;color:#027a48}.boot-sync.ready .sync-dot{background:#12b76a;box-shadow:0 0 0 5px #d1fadf;animation:none}.boot-sync.warn{background:#fffaeb;color:#b54708}.boot-sync.warn .sync-dot{background:#f79009;box-shadow:0 0 0 5px #fef0c7;animation:none}
 
-#appVersionBadge{font-size:11px;padding:4px 8px;border-radius:999px;background:#111;color:#fff;margin-left:auto;letter-spacing:.2px}
+#appVersionBadge{font-size:10px;padding:3px 6px;border-radius:999px;background:#111;color:#fff;margin-left:auto;letter-spacing:.2px;opacity:.8}
 
 .bottom-actions{padding:8px 12px 76px;text-align:center;position:relative;z-index:20}.retry-btn{width:100%;background:#1677ff;color:#fff;font-size:18px;padding:15px;border-radius:14px;cursor:pointer;pointer-events:auto;position:relative;z-index:50;touch-action:manipulation}.start-btn.running{opacity:.9}
 
@@ -126,3 +126,21 @@
   background:#5b1017;
 }
 @keyframes secondaryPulse{from{box-shadow:0 8px 24px #0005}to{box-shadow:0 0 0 5px #e44a,0 8px 24px #0006}}
+
+
+/* V1.4.8: prioritize exam content; teacher controls in compact second tab */
+.app-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 12px 6px;padding:4px;background:#102139;border:1px solid #1c3555;border-radius:14px;position:sticky;top:58px;z-index:58}
+.app-tab{padding:10px 8px;border-radius:10px;background:transparent;color:#9db1c9;font-size:13px;font-weight:900}
+.app-tab.active{background:#1677ff;color:#fff}
+.tab-panel.hidden,.app-tabs.hidden{display:none!important}
+.teacher-panel{margin:8px 12px 10px}
+#userBox{padding:10px 12px;background:#fff;border:1px solid #dbe3ec;border-radius:14px;box-shadow:0 5px 16px #0002}
+.teacher-main{display:flex;align-items:center;gap:6px;line-height:1.2}
+.teacher-main strong{font-size:14px}
+.teacher-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:7px}
+#teacherCode{margin-left:0;color:#667085;font-size:12px}
+#vehicleProfileBadge{font-size:10px;padding:3px 6px;border-radius:8px}
+.logout-btn{font-size:12px;padding:6px 8px;background:#f2f4f7;color:#344054;border-radius:9px;text-decoration:none}
+.total-clock-head{display:flex;align-items:center;justify-content:center;gap:10px;min-height:32px}
+.total-clock-head .total-clock-label{flex:0 0 auto}
+.compact-retry{width:auto!important;margin:0!important;padding:7px 11px!important;border-radius:10px!important;font-size:12px!important;line-height:1.1;background:#1677ff!important}

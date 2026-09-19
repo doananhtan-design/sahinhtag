@@ -1,16 +1,30 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" href="./icon-192.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
 <div id="loginOverlay"><div class="login-card"><h1>SA HÌNH AI</h1><div id="bootSync" class="boot-sync ready"><span class="sync-dot"></span><span id="bootSyncText">Âm thanh chạy trực tiếp trên PWA</span></div><p>Đăng nhập giáo viên</p><label>Tài khoản</label><input id="loginUser" autocomplete="username"><label>Mật khẩu</label><input id="loginPass" type="password" autocomplete="current-password"><label>URL Google Apps Script</label><input id="gasUrl" placeholder="Dán URL /exec của Apps Script" autocomplete="url"><button class="login-btn" id="saveGasBtn" type="button">LƯU KẾT NỐI</button><button class="login-btn" id="loginBtn">ĐĂNG NHẬP</button><div id="loginError" class="login-error"></div></div></div>
-<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">PHIÊN BẢN TRIỂN KHAI: V1.4.6-B08-B12-AUDIO-FIX</span></header>
-<div id="userBox">
-  <strong id="teacherName">Giáo viên</strong>
-  <span id="teacherCode"></span>
-  <span id="vehicleProfileBadge">XE CỤC BỘ: --</span>
-  <button class="logout-btn" id="logoutBtn">Đăng xuất</button>
-</div>
+<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V1.4.8</span></header>
+<nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
+  <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
+  <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
+</nav>
+<section id="teacherTabPanel" class="tab-panel teacher-panel hidden">
+  <div id="userBox">
+    <div class="teacher-main">
+      <strong id="teacherName">Giáo viên</strong>
+      <span id="teacherCode"></span>
+    </div>
+    <div class="teacher-meta">
+      <span id="vehicleProfileBadge">XE CỤC BỘ: --</span>
+      <button class="logout-btn" id="logoutBtn" type="button">Đăng xuất</button>
+    </div>
+  </div>
+</section>
+<main id="examTabPanel" class="tab-panel">
 <button class="start-btn" id="startBtn">▶ BẮT ĐẦU</button>
 <section class="total-clock total-clock-top" aria-label="Đồng hồ tổng thời gian toàn bài">
-  <div class="total-clock-label">ĐANG THI</div>
+  <div class="total-clock-head">
+    <div class="total-clock-label">ĐANG THI</div>
+    <button id="retryBtn" class="retry-btn compact-retry hidden" type="button" aria-label="Thi lại">🔄 THI LẠI</button>
+  </div>
   <div id="totalTimerBig" class="total-clock-value">18:00</div>
 </section>
 <section id="secondaryTimerBox" class="secondary-clock hidden" aria-live="polite" aria-label="Đồng hồ thời gian phụ">
@@ -18,12 +32,12 @@
   <div id="secondaryTimerValue" class="secondary-clock-value">--</div>
   <div id="secondaryTimerHint" class="secondary-clock-hint"></div>
 </section>
-<main><section class="camera card"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas><div id="cameraMsg">Nhấn BẮT ĐẦU để mở camera sau</div></section>
+<section class="camera card"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas><div id="cameraMsg">Nhấn BẮT ĐẦU để mở camera sau</div></section>
 <section class="card grid"><div><small>BÀI</small><strong id="course">WAITING</strong></div><div><small>TAG</small><strong id="tag">--</strong></div><div><small>TRẠNG THÁI</small><strong id="status">CHỜ THI</strong></div><div><small>THỜI GIAN</small><strong id="timer">00:00</strong></div><div><small>ỔN ĐỊNH</small><strong id="stable">0.0s</strong></div><div><small>THỜI GIAN BÀI</small><strong id="courseTimer">--</strong></div><div><small>TỔNG 18 PHÚT</small><strong id="totalTimer">18:00</strong></div></section>
 <section id="alert" class="alert hidden"></section>
 <section class="position-actions">
   <button id="confirmPositionBtn" class="confirm-position-btn hidden" type="button">
-    ✅ GHI NHẬN ĐÚNG VỊ TRÍ
+    ✅ ĐÚNG VỊ TRÍ
   </button>
-</section><section class="bottom-actions"><button id="retryBtn" class="retry-btn" type="button" aria-label="Thi lại">🔄 THI LẠI</button></section></main><footer>SA HÌNH AI • xử lý tại điện thoại • AprilTag 36h11 • offline-first</footer>
+</section></main><footer>SA HÌNH AI • xử lý tại điện thoại • AprilTag 36h11 • offline-first</footer>
 <script src="./gas-config.js"></script><script>window.SAHINH_API_URL=window.SAHINH_API_URL||localStorage.getItem('sahinh_api_url_v1')||'';</script><script src="./apriltag-adapter.js"></script><script src="./app.js"></script></body></html>

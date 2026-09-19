@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.6-B08-B12-AUDIO-FIX';
+const DEPLOY_VERSION='V1.4.8';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -363,36 +363,48 @@ function showPositionConfirm(show,course=''){
   if(!btn)return;
   if(show){
     btn.classList.remove('hidden');
+    btn.disabled=false;
     btn.textContent=course
-      ? `✅ GHI NHẬN ĐÚNG VỊ TRÍ — ${String(course).toUpperCase()}`
-      : '✅ GHI NHẬN ĐÚNG VỊ TRÍ';
+      ? `✅ ĐÚNG VỊ TRÍ — ${String(course).toUpperCase()}`
+      : '✅ ĐÚNG VỊ TRÍ';
   }else{
     btn.classList.add('hidden');
-    btn.textContent='✅ GHI NHẬN ĐÚNG VỊ TRÍ';
+    btn.disabled=false;
+    btn.textContent='✅ ĐÚNG VỊ TRÍ';
   }
-  btn.disabled=false;
 }
 
 function capturePositionReference(){
+  const btn=$('confirmPositionBtn');
+  if(btn?.disabled)return;
   if(!engine||engine.result!=='RUNNING'||!engine.current)return;
   const r=engine.current;
   if(!isPositionRuleCourse(r.key))return;
+  if(r.positionConfirmedByUser){
+    showPositionConfirm(false);
+    return;
+  }
+
+  // Khóa nút ngay lập tức để tránh chạm nhiều lần.
+  if(btn){btn.disabled=true;btn.textContent='⏳ ĐANG XÁC NHẬN...';}
 
   const area=Number(r.cachedArea||0);
   const tag=Number(r.d.check||0);
   if(!(area>0)||!(tag>0)){
+    if(btn){btn.disabled=false;btn.textContent=`✅ ĐÚNG VỊ TRÍ — ${r.key.toUpperCase()}`;}
     set('status',`⚠️ ${r.key.toUpperCase()} — CHƯA CÓ DIỆN TÍCH TAG KIỂM TRA`);
-    alertMsg('Chưa có diện tích TAG kiểm tra ổn định để làm mốc.',3500);
+    alertMsg('Chưa có diện tích TAG kiểm tra ổn định để xác nhận vị trí.',3500);
     return;
   }
 
   r.positionReferenceArea=area;
   r.positionReferenceTag=tag;
-  r.positionResult=null;
-  r.positionCorrect=false;
+  r.positionResult='DUNG_VI_TRI';
+  r.positionCorrect=true;
+  r.positionConfirmedByUser=true;
 
-  const saved=savePositionReference(r.key,tag,area);
-  event('POSITION_REFERENCE_SET',{
+  savePositionReference(r.key,tag,area);
+  event('POSITION_REFERENCE_CONFIRMED',{
     course:r.key,
     vehicleId:getLocalVehicleId(),
     storage:'localStorage',
@@ -400,10 +412,12 @@ function capturePositionReference(){
     area:Math.round(area),
     tolerancePct:5,
     minAllowed:Math.round(area*0.95),
-    maxAllowed:Math.round(area*1.05)
+    maxAllowed:Math.round(area*1.05),
+    userConfirmed:true
   });
 
-  set('status',`✅ ${r.key.toUpperCase()} — ĐÃ GHI MỐC ${Math.round(area)} — SAI SỐ ±5%`);
+  set('status',`✅ ${r.key.toUpperCase()} — ĐÃ XÁC NHẬN ĐÚNG VỊ TRÍ`);
+  alertMsg(`✅ ${r.key.toUpperCase()} — ĐÃ XÁC NHẬN ĐÚNG VỊ TRÍ`,3000);
   showPositionConfirm(false);
 }
 class CourseRule{
@@ -427,6 +441,7 @@ class CourseRule{
   this.total18DeadlineAt=0;
   this.positionChecked=false;
   this.positionCorrect=false;
+  this.positionConfirmedByUser=false;
   this.stopConfirmed=false;
   this.positionReferenceArea=0;
   this.repeatStartTagCount=0;
@@ -725,7 +740,7 @@ class CourseRule{
        set('status','B03 — DỪNG XE — BẮT ĐẦU ĐẾM 30s');
      }
 
-     showPositionConfirm(true,this.key);
+     if(!this.positionConfirmedByUser)showPositionConfirm(true,this.key);
 
      // B03 vẫn có luật vị trí ±5% như điểm dừng: CHƯA ĐẾN / ĐÚNG VỊ TRÍ / QUÁ VỊ TRÍ.
      if(this.positionReferenceArea>0){
@@ -764,7 +779,7 @@ class CourseRule{
          }
        }
      }else{
-       set('status',`B03 — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN GHI NHẬN ĐÚNG VỊ TRÍ`);
+       set('status',`B03 — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN ✅ ĐÚNG VỊ TRÍ ĐỂ XÁC NHẬN`);
      }
      return;
    }
@@ -788,7 +803,7 @@ class CourseRule{
      }
 
      // Nút xác nhận chỉ ghi diện tích chuẩn cho BÀI hiện tại.
-     showPositionConfirm(true,this.key);
+     if(!this.positionConfirmedByUser)showPositionConfirm(true,this.key);
 
      // Nếu chưa có mốc: chờ người dùng nhấn nút.
      if(this.positionReferenceArea>0){
@@ -822,7 +837,7 @@ class CourseRule{
          }
        }
      }else{
-       set('status',`${this.key.toUpperCase()} — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN GHI NHẬN ĐÚNG VỊ TRÍ`);
+       set('status',`${this.key.toUpperCase()} — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN ✅ ĐÚNG VỊ TRÍ ĐỂ XÁC NHẬN`);
      }
      return;
    }
@@ -1003,7 +1018,25 @@ function fmtTotal18Countdown(deadlineMs, nowMs){
 }
 function fmt(ms){const s=Math.floor(ms/1000),m=Math.floor(s/60),ss=s%60;return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`}
 
+function switchAppTab(tab){
+  const exam=$('examTabPanel'), teacher=$('teacherTabPanel');
+  const eb=$('tabExamBtn'), tb=$('tabTeacherBtn');
+  const isTeacher=tab==='teacher';
+  if(exam)exam.classList.toggle('hidden',isTeacher);
+  if(teacher)teacher.classList.toggle('hidden',!isTeacher);
+  if(eb)eb.classList.toggle('active',!isTeacher);
+  if(tb)tb.classList.toggle('active',isTeacher);
+}
+function initAppTabs(){
+  const tabs=$('appTabs');
+  if(!tabs)return;
+  $('tabExamBtn')?.addEventListener('click',()=>switchAppTab('exam'));
+  $('tabTeacherBtn')?.addEventListener('click',()=>switchAppTab('teacher'));
+}
+initAppTabs();
+
 async function startExam(){
+  switchAppTab('exam');
   showLocalVehicleProfile();
   stopTotal18Ticker();
   showPositionConfirm(false);
@@ -1028,6 +1061,7 @@ async function startExam(){
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
 }
 async function retryExam(){
+  switchAppTab('exam');
   showLocalVehicleProfile();
   stopTotal18Ticker();
   showPositionConfirm(false);
@@ -1126,7 +1160,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
   const KEY='sahinh_teacher_session_v1';
   const id=x=>document.getElementById(x);
-  function show(t){id('loginOverlay').style.display=t?'none':'flex';id('userBox').style.display=t?'block':'none';id('startBtn').style.display=t?'block':'none';if(t){id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'')}}
+  function show(t){id('loginOverlay').style.display=t?'none':'flex';const tabs=id('appTabs');if(tabs)tabs.classList.toggle('hidden',!t);switchAppTab('exam');if(t){id('startBtn').style.display='block';id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'');}else{id('startBtn').style.display='none';}}
   async function doLogin(){
     const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
     if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
