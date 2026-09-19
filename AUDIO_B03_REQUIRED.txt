@@ -1,8 +1,0 @@
-B03 REQUIRED AUDIO
-audio/b03/batdau.mp3
-audio/b03/dungxe.mp3
-audio/b03/chuaden.mp3
-audio/b03/quavitri.mp3
-audio/b03/tutdoc.mp3
-audio/thitruot.mp3
-audio/b03/qua30s.mp3
