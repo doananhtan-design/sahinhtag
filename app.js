@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.10';
+const DEPLOY_VERSION='V1.4.14';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -195,7 +195,9 @@ async function playDirect(course,file){
       a.src=src;
       audioMem.set(src,a);
     }
-    try{ a.load(); }catch(_){}
+    if(a.readyState===0 || a.error || a.networkState===HTMLMediaElement.NETWORK_NO_SOURCE){
+      try{ a.load(); }catch(_){}
+    }
 
     if(activeAudio && activeAudio!==a){
       try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}
@@ -204,6 +206,33 @@ async function playDirect(course,file){
     activeAudio=a;
     a.currentTime=0;
     a.muted=false;
+
+    // Chờ MP3 thực sự sẵn sàng trước khi play, tránh Android gọi play()
+    // ngay sau load() rồi bỏ âm thanh ngắn như dungxe.mp3.
+    if(a.readyState<2){
+      await new Promise((resolve,reject)=>{
+        let done=false;
+        const cleanup=()=>{
+          a.removeEventListener('canplay',onCan);
+          a.removeEventListener('loadeddata',onCan);
+          a.removeEventListener('error',onErr);
+          clearTimeout(timer);
+        };
+        const finish=(err)=>{
+          if(done)return;
+          done=true;
+          cleanup();
+          err?reject(err):resolve();
+        };
+        const onCan=()=>finish();
+        const onErr=()=>finish(a.error||new Error('MEDIA_ERROR'));
+        const timer=setTimeout(()=>finish(new Error('AUDIO_READY_TIMEOUT')),4000);
+        a.addEventListener('canplay',onCan,{once:true});
+        a.addEventListener('loadeddata',onCan,{once:true});
+        a.addEventListener('error',onErr,{once:true});
+      });
+    }
+
     await a.play();
 
     if(seq!==audioPlaySeq){
@@ -221,6 +250,39 @@ async function playDirect(course,file){
   }
 }
 function play(course,file){return playDirect(course,file);}
+async function playWithDungXeFallback(course){
+  const primaryCourse=String(course||'').toLowerCase();
+  const primarySrc=localAudioPath(primaryCourse,'dungxe.mp3');
+  const ok=await playDirect(primaryCourse,'dungxe.mp3');
+  if(ok) return true;
+
+  // Fallback theo yeu cau: neu DUNGXE cua B08/B12 khong phat duoc,
+  // dung file dungxe.mp3 cua B03. Chi ap dung cho B08/B12.
+  if(primaryCourse==='b08'||primaryCourse==='b12'){
+    const fallbackSrc=localAudioPath('b03','dungxe.mp3');
+    if(fallbackSrc && fallbackSrc!==primarySrc){
+      event('AUDIO_FALLBACK_ATTEMPT',{
+        course:primaryCourse,
+        requested:'dungxe.mp3',
+        primaryPath:primarySrc,
+        fallbackPath:fallbackSrc
+      });
+      const fallbackOk=await playDirect('b03','dungxe.mp3');
+      if(fallbackOk){
+        set('status',`${primaryCourse.toUpperCase()} — DUNGXE: dùng dự phòng audio/b03/dungxe.mp3`);
+        event('AUDIO_FALLBACK_USED',{
+          course:primaryCourse,
+          requested:'dungxe.mp3',
+          primaryPath:primarySrc,
+          fallbackPath:fallbackSrc,
+          ok:true
+        });
+        return true;
+      }
+    }
+  }
+  return false;
+}
 async function playSharedAudio(file){
   const src=`./audio/${String(file||'').trim()}`;
   if(!file){reportAudioError('./audio/<empty>',null,'Thiếu tên file audio dùng chung');return false;}
@@ -316,6 +378,34 @@ function stopCamera(){if(video?.srcObject){video.srcObject.getTracks().forEach(t
 
 const LOCAL_VEHICLE_ID_KEY='sahinh_vehicle_local_id_v1';
 const POSITION_REFERENCE_PREFIX='sahinh_position_reference_v1_';
+const B11_DISTANCE_PREFIX='sahinh_b11_distance_v1_';
+const B11_DEFAULT_DISTANCE_M=30;
+
+function getB11DistanceKey(vehicleId=getLocalVehicleId()){
+  return `${B11_DISTANCE_PREFIX}${vehicleId}`;
+}
+function getLocalB11Distance(){
+  const raw=Number(localStorage.getItem(getB11DistanceKey()));
+  return Number.isFinite(raw)&&raw>0 ? raw : B11_DEFAULT_DISTANCE_M;
+}
+function saveLocalB11Distance(value){
+  const meters=Number(value);
+  if(!Number.isFinite(meters)||meters<=0||meters>1000) throw new Error('Khoảng cách Bài 11 phải từ 0,1 đến 1000 m.');
+  const vehicleId=getLocalVehicleId();
+  localStorage.setItem(getB11DistanceKey(vehicleId),String(meters));
+  if(engine?.current?.key==='b11' && engine.current.state===0) engine.current.distanceMeters=meters;
+  renderB11DistanceTool();
+  event('B11_DISTANCE_SAVED_LOCAL',{vehicleId,distanceMeters:meters,storage:'localStorage'});
+  return meters;
+}
+function renderB11DistanceTool(){
+  const input=$('b11DistanceInput'), badge=$('b11DistanceCurrent'), status=$('b11DistanceStatus');
+  const meters=getLocalB11Distance();
+  if(input && document.activeElement!==input) input.value=meters;
+  if(badge) badge.textContent=`Xe ${getLocalVehicleId()} · ${meters} m`;
+  if(status) status.textContent='Lưu cục bộ trên điện thoại này, chỉ dùng cho xe này.';
+}
+
 const POSITION_RULE_COURSES=new Set(['b02','b03','b10']);
 
 function getLocalVehicleId(){
@@ -477,7 +567,7 @@ class CourseRule{
   this.lastCx=-1;
   this.lastCy=-1;
   this.delayAt=0;
-  this.distanceMeters=this.d.distanceMeters||30;
+  this.distanceMeters=this.key==='b11'?getLocalB11Distance():(this.d.distanceMeters||30);
   this.result=null;
   this.commandPlayed=false;
   this.total18StartAt=0;
@@ -530,6 +620,13 @@ class CourseRule{
       }
       showPositionConfirm(false);
     }
+  }
+  if(this.key==='b11'){
+    const meters=getLocalB11Distance();
+    this.distanceMeters=meters;
+    set('status',`B11 — KHOẢNG CÁCH CỤC BỘ ${meters} m · TAG 112 → 113`);
+    renderB11DistanceTool();
+    event('B11_DISTANCE_LOADED_LOCAL',{vehicleId:getLocalVehicleId(),distanceMeters:meters});
   }
   event('COURSE_INIT',{course:this.key,localVehicleId:getLocalVehicleId()});
 }
@@ -709,7 +806,8 @@ class CourseRule{
      if(exactCheckTag&&visible&&!this.checkAudioPlayed&&!this.checkAudioPending){
        this.checkAudioPending=true;
        this.cachedArea=Number(area||0);
-       const playResult=this.audio('dungxe.mp3');
+       event('CHECK_TAG_DETECTED',{course:this.key,checkTag:tag,audio:'dungxe.mp3',audioPath:`./audio/${this.key}/dungxe.mp3`});
+       const playResult=playWithDungXeFallback(this.key);
        Promise.resolve(playResult).then(ok=>{
          this.checkAudioPending=false;
          if(ok){
@@ -761,7 +859,34 @@ class CourseRule{
    }
    return 'WAITING';
  }
- b11(tag,visible,t){if(this.state===1&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 11')}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===113&&visible){const duration=Math.max(.1,(t-this.startedAt)/1000),speed=(this.distanceMeters/duration)*3.6;this.result=speed>=25?'PASS':'LOW_SPEED';this.audio(speed>=25?'tunv.mp3':'thieutoc.mp3',speed>=25?'Tunv':'Sai tốc độ quy định');event('SPEED_RESULT',{course:'b11',speedKmh:Number(speed.toFixed(1)),duration:Number(duration.toFixed(2))});this.finish(this.result,speed>=25?'Đạt tốc độ':'Sai tốc độ');this.state=2}}
+ b11(tag,visible,t){
+  if(this.state===1&&t-this.startedAt>=this.d.limit*1000){
+    if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 11')}
+    return;
+  }
+  if(this.state===0&&tag===this.d.start&&visible){
+    this.distanceMeters=getLocalB11Distance();
+    this.audio('batdau.mp3');
+    this.startedAt=t;
+    this.state=1;
+    set('status',`B11 — TAG 112 — ĐANG ĐO TỐC ĐỘ · ${this.distanceMeters} m`);
+    event('B11_SPEED_START',{startTag:112,distanceMeters:this.distanceMeters,vehicleId:getLocalVehicleId()});
+    return 'SPEED_START';
+  }
+  if(this.state===1&&tag===this.d.end&&visible){
+    const duration=Math.max(.1,(t-this.startedAt)/1000);
+    const speed=(this.distanceMeters/duration)*3.6;
+    const speedKmh=Number(speed.toFixed(1));
+    this.result=speed>=25?'PASS':'LOW_SPEED';
+    this.audio(speed>=25?'tunv.mp3':'thieutoc.mp3',speed>=25?'Tunv':'Sai tốc độ quy định');
+    set('status',`B11 — TAG 113 · ${this.distanceMeters} m · ${speedKmh} km/h`);
+    event('SPEED_RESULT',{course:'b11',startTag:112,endTag:113,distanceMeters:Number(this.distanceMeters),speedKmh,duration:Number(duration.toFixed(2)),vehicleId:getLocalVehicleId(),thresholdKmh:25,storage:'localStorage'});
+    this.finish(this.result,speed>=25?'Đạt tốc độ':'Sai tốc độ');
+    this.state=2;
+    return 'SPEED_DONE';
+  }
+  return 'WAITING';
+}
  kt(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&t-this.startedAt>=5000){this.audio('hoanthanh.mp3');this.finish('FINAL','Hoàn thành sa hình');this.state=2}}
  checkTarget(area,t=performance.now()){
    if(this.is_finished)return;
@@ -1223,6 +1348,19 @@ document.addEventListener('DOMContentLoaded',async()=>{
   try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
   $('startBtn').onclick=startExam;
   $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
+  $('saveB11DistanceBtn')?.addEventListener('click',e=>{
+    e.preventDefault();
+    try{
+      const value=saveLocalB11Distance($('b11DistanceInput')?.value);
+      set('status',`✅ B11 — ĐÃ LƯU KHOẢNG CÁCH ${value} m CHO ${getLocalVehicleId()}`);
+      alertMsg(`✅ B11 — Đã lưu ${value} m trên xe ${getLocalVehicleId()}`,2500);
+    }catch(err){
+      set('b11DistanceStatus','❌ '+(err.message||err));
+      alertMsg('❌ '+(err.message||err),3000);
+    }
+  });
+  $('b11DistanceInput')?.addEventListener('blur',()=>renderB11DistanceTool());
+  renderB11DistanceTool();
   $('confirmPositionBtn').addEventListener('click',e=>{
     e.preventDefault();
     e.stopPropagation();

@@ -1,1 +1,2 @@
-V1.4.10 — FIX AUDIO TAG 82/123
+V1.4.14
+Bài 11: khoảng cách TAG 112→113 nhập bởi giáo viên, lưu localStorage theo XE CỤC BỘ của thiết bị; tính tốc độ = khoảng cách(m) / thời gian(s) × 3,6. Không gửi khoảng cách lên Google Sheet. Ngưỡng 25 km/h giữ nguyên theo code trước đó.
