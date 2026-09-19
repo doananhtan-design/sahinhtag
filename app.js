@@ -731,23 +731,33 @@ class CourseRule{
     return;
   }
   if(this.state===1){
-    // B04/B06: hết 120s mà chưa thấy TAG kết thúc thì phát quatg1.mp3.
-    if(t-this.startedAt>=this.d.limit*1000){
-      if(!this.warnedTimeout){
-        this.warnedTimeout=true;
-        const timeoutAudio=this.key==='b04'?'./audio/b06/quatg1.mp3':'./audio/b06/quatg1.mp3';
-        if(this.key==='b04'){
-          playDirect('b04','quatg1.mp3').then(ok=>{
-            if(!ok)playDirect('b06','quatg1.mp3');
-          }).catch(()=>playDirect('b06','quatg1.mp3'));
-          event('SIMPLE_TIMED_TIMEOUT',{course:this.key,endTag:this.d.end,limitMs:this.d.limit*1000,audioPrimary:'./audio/b04/quatg1.mp3',audioFallback:'./audio/b06/quatg1.mp3'});
-        }else{
-          this.audio('quatg1.mp3');
-          event('SIMPLE_TIMED_TIMEOUT',{course:this.key,endTag:this.d.end,limitMs:this.d.limit*1000,audio:'./audio/b06/quatg1.mp3'});
-        }
-        this.finish('TIMEOUT',`Quá ${this.d.limit} giây — không thấy TAG ${this.d.end}`);
+    // B04/B06: quá 120s chỉ phát cảnh báo, KHÔNG kết thúc bài.
+    // Bài tiếp tục cho tới khi nhận TAG 42/62.
+    if(t-this.startedAt>=this.d.limit*1000 && !this.warnedTimeout){
+      this.warnedTimeout=true;
+      if(this.key==='b04'){
+        playDirect('b04','quatg1.mp3').then(ok=>{
+          if(!ok)playDirect('b06','quatg1.mp3');
+        }).catch(()=>playDirect('b06','quatg1.mp3'));
+        event('SIMPLE_TIMED_TIMEOUT_WARNING',{
+          course:this.key,
+          endTag:this.d.end,
+          limitMs:this.d.limit*1000,
+          audioPrimary:'./audio/b04/quatg1.mp3',
+          audioFallback:'./audio/b06/quatg1.mp3',
+          continueExam:true
+        });
+      }else{
+        this.audio('quatg1.mp3');
+        event('SIMPLE_TIMED_TIMEOUT_WARNING',{
+          course:this.key,
+          endTag:this.d.end,
+          limitMs:this.d.limit*1000,
+          audio:'./audio/b06/quatg1.mp3',
+          continueExam:true
+        });
       }
-      return 'TIMEOUT';
+      set('status',`${this.key.toUpperCase()} — QUÁ 120s — CẢNH BÁO, TIẾP TỤC CHỜ TAG ${this.d.end}`);
     }
     if(this.d.end&&tag===this.d.end&&visible){
       this.finish('PASS','Hoàn thành bài');
@@ -1250,6 +1260,32 @@ class ExamEngine{
      play('THKC','THKC.mp3','CÒI KHẨN CẤP — DỪNG XE NGAY');
    }
    set('timer',fmt(Date.now()-this.startedAt));
+
+   // B04/B06: kiểm soát đủ 120s độc lập với việc camera có đang thấy TAG hay không.
+   // Khi hết 120s mà chưa có TAG 42/62: chỉ phát cảnh báo, bài vẫn tiếp tục.
+   if(this.current && (this.current.key==='b04'||this.current.key==='b06') &&
+      this.current.state===1 && !this.current.warnedTimeout && this.current.startedAt &&
+      (t-this.current.startedAt)>=this.current.d.limit*1000){
+     this.current.warnedTimeout=true;
+     if(this.current.key==='b04'){
+       playDirect('b04','quatg1.mp3').then(ok=>{
+         if(!ok)playDirect('b06','quatg1.mp3');
+       }).catch(()=>playDirect('b06','quatg1.mp3'));
+       event('SIMPLE_TIMED_TIMEOUT_WARNING',{
+         course:this.current.key, endTag:this.current.d.end, limitMs:this.current.d.limit*1000,
+         audioPrimary:'./audio/b04/quatg1.mp3', audioFallback:'./audio/b06/quatg1.mp3', continueExam:true, source:'engine.update'
+       });
+     }else{
+       this.current.audio('quatg1.mp3');
+       event('SIMPLE_TIMED_TIMEOUT_WARNING',{
+         course:this.current.key, endTag:this.current.d.end, limitMs:this.current.d.limit*1000,
+         audio:'./audio/b06/quatg1.mp3', continueExam:true, source:'engine.update'
+       });
+     }
+     set('courseTimer','0s');
+     set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — CẢNH BÁO, VẪN TIẾP TỤC THI`);
+   }
+
    // TỔNG 18 PHÚT: tính từ lúc phát baobai.mp3, áp dụng cho toàn bộ bài thi.
    // Khi thấy TAG 141 thì dừng kiểm soát timeout 18 phút.
    // INVARIANT: total18StartAt chỉ được set một lần bởi B01/baobai.mp3; các TAG/Bài sau không reset.
