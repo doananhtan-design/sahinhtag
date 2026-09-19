@@ -1528,54 +1528,207 @@ async function loop(t){
   raf=requestAnimationFrame(loop);
 }
 
+
+const AUTH_SESSION_MAX_MS = 24*60*60*1000;
+const AUTH_CHECK_INTERVAL_MS = 15*60*1000;
+function authDayKeyLocal(d=new Date()){
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function unwrapAuthResponse(payload){
+  const outer = payload || {};
+  const inner = (outer && outer.data && typeof outer.data==='object') ? outer.data : outer;
+  const nested = (inner && inner.data && typeof inner.data==='object') ? inner.data : inner;
+  const okValue = nested?.success ?? nested?.ok ?? inner?.success ?? inner?.ok ?? outer?.success ?? outer?.ok;
+  return {
+    ok: okValue !== false,
+    data: nested || {},
+    message: nested?.message || inner?.message || outer?.message || outer?.error || ''
+  };
+}
+
 document.addEventListener('DOMContentLoaded',async()=>{
   showLocalVehicleProfile();
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
-  const KEY='sahinh_teacher_session_v1';
+  const KEY='sahinh_teacher_session_v2';
   const id=x=>document.getElementById(x);
-  function show(t){id('loginOverlay').style.display=t?'none':'flex';const tabs=id('appTabs');if(tabs)tabs.classList.toggle('hidden',!t);switchAppTab('exam');if(t){id('startBtn').style.display='block';id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'');}else{id('startBtn').style.display='none';}}
+  let authBusy=false;
+  let authTimer=null;
+
+  function clearTeacherSession(){
+    try{localStorage.removeItem(KEY)}catch(_){}
+    window.currentTeacher=null;
+  }
+  function saveTeacherSession(result, previous){
+    const teacher = result.teacher || result.data?.teacher || previous?.teacher || result.data || result.teacherData;
+    const token = result.token || result.data?.token || previous?.token;
+    if(!teacher || !token) throw Error('Máy chủ không trả về phiên đăng nhập hợp lệ.');
+    const loginAt = Number(previous?.loginAt) > 0 ? Number(previous.loginAt) : Number(result.loginAt||result.data?.loginAt||Date.now());
+    const dayKey = String(previous?.loginDayKey || result.dayKey || result.data?.dayKey || authDayKeyLocal());
+    const expiresAt = Number(result.expiresAt || result.data?.expiresAt || previous?.expiresAt || (loginAt + AUTH_SESSION_MAX_MS));
+    const t={...teacher,token,loginAt,loginDayKey:dayKey,expiresAt,lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
+    localStorage.setItem(KEY,JSON.stringify(t));
+    window.currentTeacher=t;
+    return t;
+  }
+  function getStoredSession(){
+    try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch(_){return null}
+  }
+  function isLocalSessionExpired(t){
+    if(!t?.token)return true;
+    const loginAt=Number(t.loginAt||0), expiresAt=Number(t.expiresAt||0);
+    if(!loginAt || !expiresAt)return true;
+    if(Date.now()>=expiresAt)return true;
+    if(String(t.loginDayKey||'')!==authDayKeyLocal())return true;
+    if(Date.now()-loginAt>=AUTH_SESSION_MAX_MS)return true;
+    return false;
+  }
+  function setAuthStatus(text,kind=''){
+    const el=id('authStatus'); if(!el)return;
+    el.textContent=text; el.className='auth-status'+(kind?' '+kind:'');
+  }
+  function show(t){
+    id('loginOverlay').style.display=t?'none':'flex';
+    const tabs=id('appTabs');if(tabs)tabs.classList.toggle('hidden',!t);
+    switchAppTab('exam');
+    if(t){
+      id('startBtn').style.display='block';
+      id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');
+      id('teacherCode').textContent=' • '+(t.maGV||t.code||'');
+      const rb=id('teacherRoleBadge'); if(rb)rb.textContent=String(t.quyen||'GIAOVIEN').toUpperCase();
+      setAuthStatus('✅ Quyền đang hợp lệ','ok');
+    }else{
+      id('startBtn').style.display='none';
+      setAuthStatus('🔒 Chưa đăng nhập','warn');
+    }
+  }
+  async function forceLogout(message='Phiên đăng nhập đã hết hạn.'){
+    try{finishLocal()}catch(_){}
+    clearTeacherSession();
+    if(authTimer){clearInterval(authTimer);authTimer=null}
+    show(null);
+    const e=id('loginError');
+    if(e){e.textContent=message;e.style.display='block'}
+    alertMsg(message,5000);
+  }
+  async function validateCurrentSession(reason='background'){
+    if(authBusy)return !!window.currentTeacher;
+    const t=window.currentTeacher || getStoredSession();
+    if(!t?.token)return false;
+    if(isLocalSessionExpired(t)){
+      await forceLogout('🔒 Phiên giáo viên đã hết hiệu lực (24 giờ hoặc đã sang ngày mới). Vui lòng đăng nhập lại.');
+      return false;
+    }
+    authBusy=true;
+    setAuthStatus('⏳ Đang kiểm tra quyền…','warn');
+    try{
+      const d=await apiPost({action:'validate',token:t.token});
+      const r=unwrapAuthResponse(d);
+      if(!r.ok || !r.data?.ok){
+        await forceLogout(r.message || '🔒 Tài khoản không còn được phép sử dụng. Vui lòng đăng nhập lại.');
+        return false;
+      }
+      const teacher=r.data.teacher||r.data.data?.teacher||t;
+      const expiresAt=Number(r.data.expiresAt||t.expiresAt||0);
+      const dayKey=String(r.data.dayKey||t.loginDayKey||'');
+      const next={...t,...teacher,expiresAt:expiresAt||t.expiresAt,loginDayKey:dayKey||t.loginDayKey,lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
+      localStorage.setItem(KEY,JSON.stringify(next));
+      window.currentTeacher=next;
+      show(next);
+      if(reason==='start')setAuthStatus('✅ Đã xác thực tài khoản','ok');
+      else setAuthStatus('✅ Quyền hợp lệ • '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}),'ok');
+      return true;
+    }catch(err){
+      if(isLocalSessionExpired(t)){
+        await forceLogout('🔒 Phiên giáo viên đã hết hạn. Vui lòng đăng nhập lại.');
+        return false;
+      }
+      window.currentTeacher=t;
+      setAuthStatus('⚠ Chưa kiểm tra được máy chủ','warn');
+      if(reason==='start'){
+        alertMsg('Không thể xác thực tài khoản lúc này. Hãy kiểm tra Internet rồi thử lại.',5000);
+        return false;
+      }
+      return true;
+    }finally{authBusy=false}
+  }
+  function scheduleAuthChecks(){
+    if(authTimer)clearInterval(authTimer);
+    authTimer=setInterval(async()=>{
+      const t=getStoredSession();
+      if(!t)return;
+      if(isLocalSessionExpired(t)){
+        await forceLogout('🔒 Phiên giáo viên đã hết hiệu lực (24 giờ hoặc đã sang ngày mới). Vui lòng đăng nhập lại.');
+        return;
+      }
+      await validateCurrentSession('timer');
+    },AUTH_CHECK_INTERVAL_MS);
+  }
+
   async function doLogin(){
     const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
     if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
+    if(!navigator.onLine){e.textContent='Cần Internet để xác thực tài khoản giáo viên.';e.style.display='block';return}
     try{
-      const d=await apiPost({action:'login',taiKhoan:u,matKhau:p});
-      if(!d.success)throw Error(d.message||'Đăng nhập thất bại');
-      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';
-    }catch(x){e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block'}
-  }
-  id('loginBtn').onclick=doLogin;id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
-  id('logoutBtn').onclick=()=>{localStorage.removeItem(KEY);window.currentTeacher=null;finishLocal();show(null)};
-  window.addEventListener('online',()=>set('net','● ONLINE'));window.addEventListener('offline',()=>set('net','● OFFLINE'));
-  set('net',navigator.onLine?'● ONLINE':'● OFFLINE');
-  // Am thanh la file noi bo cua PWA, khong dong bo tu Drive.
-  preloadLocalAudio();
-  // Chi goi Google Apps Script khi giao vien dang nhap.
-  try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
-  $('startBtn').onclick=startExam;
-  $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
-  $('saveB11DistanceBtn')?.addEventListener('click',e=>{
-    e.preventDefault();
-    e.stopPropagation();
-    try{
-      const input=$('b11DistanceInput');
-      const value=saveLocalB11Distance(input?.value);
-      if(input) input.value=String(value);
-      const msg=`✅ B11 — ĐÃ THAY ĐỔI THÀNH CÔNG: ${value} m · XE ${getLocalVehicleId()}`;
-      set('b11DistanceStatus',msg);
-      set('status',msg);
-      alertMsg(msg,3000);
-    }catch(err){
-      const msg='❌ B11 — '+(err.message||err);
-      set('b11DistanceStatus',msg);
-      alertMsg(msg,3000);
+      e.style.display='none'; setAuthStatus('⏳ Đang xác thực…','warn');
+      const d=await apiPost({action:'login',taiKhoan:u,matKhau:p,username:u,password:p});
+      const r=unwrapAuthResponse(d);
+      if(!r.ok || !r.data?.ok)throw Error(r.message||'Đăng nhập thất bại');
+      clearTeacherSession();
+      const teacher=saveTeacherSession(r.data||r);
+      show(teacher);
+      e.style.display='none';
+      scheduleAuthChecks();
+      setAuthStatus('✅ Đăng nhập & xác thực thành công','ok');
+    }catch(x){
+      e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block';
+      setAuthStatus('❌ Chưa xác thực','err');
     }
+  }
+
+  id('loginBtn').onclick=doLogin;
+  id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
+  id('logoutBtn').onclick=async()=>{
+    const t=window.currentTeacher||getStoredSession();
+    try{if(t?.token)await apiPost({action:'logout',token:t.token})}catch(_){}
+    clearTeacherSession(); try{finishLocal()}catch(_){} show(null);
+  };
+  window.addEventListener('online',async()=>{set('net','● ONLINE');if(window.currentTeacher)await validateCurrentSession('online')});
+  window.addEventListener('offline',()=>set('net','● OFFLINE'));
+  document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&window.currentTeacher)await validateCurrentSession('visible')});
+  set('net',navigator.onLine?'● ONLINE':'● OFFLINE');
+  preloadLocalAudio();
+
+  try{
+    const t=getStoredSession();
+    if(t && !isLocalSessionExpired(t)){
+      window.currentTeacher=t; show(t);
+      if(navigator.onLine){
+        const ok=await validateCurrentSession('boot');
+        if(!ok) return;
+      }else{
+        setAuthStatus('⚠ Offline • chưa xác minh máy chủ','warn');
+      }
+      scheduleAuthChecks();
+    }else{
+      if(t)clearTeacherSession();
+      show(null);
+    }
+  }catch(_){clearTeacherSession();show(null)}
+
+  $('startBtn').onclick=async()=>{if(await validateCurrentSession('start'))await startExam()};
+  $('retryBtn').addEventListener('click',async e=>{e.preventDefault();e.stopPropagation();if(await validateCurrentSession('start'))await retryExam()});
+  $('saveB11DistanceBtn')?.addEventListener('click',e=>{
+    e.preventDefault();e.stopPropagation();
+    try{
+      const input=$('b11DistanceInput'); const value=saveLocalB11Distance(input?.value);
+      if(input)input.value=String(value);
+      const msg=`✅ B11 — ĐÃ THAY ĐỔI THÀNH CÔNG: ${value} m · XE ${getLocalVehicleId()}`;
+      set('b11DistanceStatus',msg);set('status',msg);alertMsg(msg,3000);
+    }catch(err){const msg='❌ B11 — '+(err.message||err);set('b11DistanceStatus',msg);alertMsg(msg,3000)}
   });
   renderB11DistanceTool();
-  $('confirmPositionBtn').addEventListener('click',e=>{
-    e.preventDefault();
-    e.stopPropagation();
-    capturePositionReference();
-  });
+  $('confirmPositionBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();capturePositionReference()});
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);
