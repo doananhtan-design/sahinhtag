@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.8';
+const DEPLOY_VERSION='V1.4.10';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -108,15 +108,57 @@ async function unlockAudio(){
       reportAudioError(src,e,'Không mở được file MP3 khi khởi tạo');
     }
   }
+  // Prime cac file DUNG XE cua B08/B12 ngay sau thao tac bam BAT DAU.
+  // Hai file nay khong bat buoc de mo phien; neu co trong thu muc audio thi
+  // se duoc nap truoc de tranh loi autoplay/cache lan dau khi TAG 82/123 xuat hien.
+  for(const [course,file] of [['b08','dungxe.mp3'],['b12','dungxe.mp3']]){
+    try{ await primeLocalAudio(course,file); }catch(e){
+      reportAudioError(localAudioPath(course,file),e,'Prime B08/B12 DUNG XE that bai — se thu lai khi TAG xuat hien');
+    }
+  }
   audioUnlocked=ok;
   return ok;
+}
+async function primeLocalAudio(course,file){
+  const src=localAudioPath(course,file);
+  if(!src) throw new Error('INVALID_AUDIO_PATH');
+  let a=audioMem.get(src);
+  if(!a){
+    a=new Audio();
+    a.preload='auto';
+    a.playsInline=true;
+    a.src=src;
+    audioMem.set(src,a);
+  }
+  a.load();
+  await new Promise((resolve,reject)=>{
+    if(a.readyState>=2){resolve();return;}
+    let done=false;
+    const finish=(err)=>{if(done)return;done=true;a.removeEventListener('canplay',onCan);a.removeEventListener('loadeddata',onCan);a.removeEventListener('error',onErr);if(err)reject(err);else resolve();};
+    const onCan=()=>finish();
+    const onErr=(e)=>finish(e?.error||new Error(a.error?.message||'MEDIA_ERROR'));
+    a.addEventListener('canplay',onCan,{once:true});
+    a.addEventListener('loadeddata',onCan,{once:true});
+    a.addEventListener('error',onErr,{once:true});
+    setTimeout(()=>finish(new Error('AUDIO_LOAD_TIMEOUT')),5000);
+  });
+  const oldMuted=a.muted;
+  try{
+    a.muted=true;
+    await a.play();
+    a.pause();
+    a.currentTime=0;
+  } finally {
+    a.muted=oldMuted;
+  }
+  return true;
 }
 function preloadLocalAudio(){
   const list=[];
   for(const c of Object.keys(AUDIO_COURSE_DIR)){
     if(c==='thkc') continue;
     const dir=AUDIO_COURSE_DIR[c];
-    for(const f of ['baobai.mp3','batdau.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','quatgbai.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
+    for(const f of ['baobai.mp3','batdau.mp3','batdau.mp3','dung.mp3','chuaden.mp3','quavitri.mp3','dungxe.mp3','tutdoc.mp3','quagio.mp3','quatg1.mp3','quatg30.mp3','thieutoc.mp3','tunv.mp3','doilenh.mp3']) list.push(`./audio/${dir}/${f}`);
     if(c==='b01'){
       list.push('./audio/b01/qua30s.mp3');
     }
@@ -146,13 +188,14 @@ async function playDirect(course,file){
   const seq=++audioPlaySeq;
   try{
     let a=audioMem.get(src);
-    if(!a){
+    if(!a || a.error || a.networkState===HTMLMediaElement.NETWORK_NO_SOURCE){
       a=new Audio();
       a.preload='auto';
       a.playsInline=true;
       a.src=src;
       audioMem.set(src,a);
     }
+    try{ a.load(); }catch(_){}
 
     if(activeAudio && activeAudio!==a){
       try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}
@@ -172,7 +215,7 @@ async function playDirect(course,file){
     return true;
   }catch(e){
     if(seq===audioPlaySeq){
-      reportAudioError(src,e,'Kiểm tra file MP3 và đường dẫn trên GitHub Pages');
+      reportAudioError(src,e,`Kiểm tra file MP3/duong dan. readyState=${a?.readyState||0}, networkState=${a?.networkState||0}, mediaError=${a?.error?.code||0}`);
     }
     return false;
   }
@@ -963,7 +1006,7 @@ class ExamEngine{
        set('courseTimer',`${sec}s`);
        showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remainRepeat,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.start} lần 2`);
        if(remainRepeat<=0&&!this.current.is_finished){
-         this.current.audio('quatgbai.mp3');
+         this.current.audio('quatg1.mp3');
          this.current.repeatStartDone=true;
          this.current.repeatStartDeadlineAt=0;
          event('POSITION_RULE_120S_TIMEOUT',{
@@ -971,7 +1014,7 @@ class ExamEngine{
            startTag:this.current.d.start,
            message:'Quá 120 giây chưa thấy TAG vào bài lần 2'
          });
-         set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATGBAI`);
+         set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATG1`);
          this.current.finish('TIMEOUT',`Quá 120s — chưa thấy TAG ${this.current.d.start} lần 2`);
        }
      }else if(this.current.key==='b03' && this.current.delayAt>0){

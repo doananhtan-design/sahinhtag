@@ -128,7 +128,7 @@
 @keyframes secondaryPulse{from{box-shadow:0 8px 24px #0005}to{box-shadow:0 0 0 5px #e44a,0 8px 24px #0006}}
 
 
-/* V1.4.8: prioritize exam content; teacher controls in compact second tab */
+/* V1.4.10: prioritize exam content; teacher controls in compact second tab */
 .app-tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:8px 12px 6px;padding:4px;background:#102139;border:1px solid #1c3555;border-radius:14px;position:sticky;top:58px;z-index:58}
 .app-tab{padding:10px 8px;border-radius:10px;background:transparent;color:#9db1c9;font-size:13px;font-weight:900}
 .app-tab.active{background:#1677ff;color:#fff}
