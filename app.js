@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.3-NEAREST-TAG';
+const DEPLOY_VERSION='V1.4.4-B08-B12-NO-POSITION';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -273,7 +273,7 @@ function stopCamera(){if(video?.srcObject){video.srcObject.getTracks().forEach(t
 
 const LOCAL_VEHICLE_ID_KEY='sahinh_vehicle_local_id_v1';
 const POSITION_REFERENCE_PREFIX='sahinh_position_reference_v1_';
-const POSITION_RULE_COURSES=new Set(['b02','b03','b08','b10','b12']);
+const POSITION_RULE_COURSES=new Set(['b02','b03','b10']);
 
 function getLocalVehicleId(){
   let id=localStorage.getItem(LOCAL_VEHICLE_ID_KEY);
@@ -434,6 +434,7 @@ class CourseRule{
   this.repeatStartAt=0;
   this.repeatStartDeadlineAt=0;
   this.repeatStartDone=false;
+  this.checkAudioPlayed=false;
   this.positionReferenceTag=0;
   this.positionResult=null;
   this.positionCorrect=false;
@@ -481,9 +482,9 @@ class CourseRule{
    const sec=t/1000;
    if(this.key==='b01')return this.b01(tag,visible,t);
    if(isPositionRuleCourse(this.key))return this.positionRule(tag,area,visible,t);
+   if(this.key==='b08'||this.key==='b12')return this.repeatTimedNoPosition(tag,visible,t);
    if(this.key==='b04'||this.key==='b06')return this.simpleTimed(tag,visible,t);
-   if(['b05','b07','b09','b12','b13'].includes(this.key))return this.instant(tag,visible,t);
-   if(this.key==='b08')return this.b08(tag,visible,t);
+   if(['b05','b07','b09','b13'].includes(this.key))return this.instant(tag,visible,t);
    if(this.key==='b10')return this.b10(tag,area,visible,center,t);
    if(this.key==='b11')return this.b11(tag,visible,t);
    if(this.key==='KT')return this.kt(tag,visible,t);
@@ -568,7 +569,29 @@ class CourseRule{
      this.state=1;
      this.startedAt=t;
 
-     if(this.key==='b03'){
+     if(this.key==='b08'||this.key==='b12'){
+     // B08/B12 KHÔNG kiểm tra vị trí. Nếu detector gọi checkTarget sau khi TAG 82/123 ổn định,
+     // chỉ bảo đảm phát DỪNG XE một lần, không tạo/so sánh mốc ±5% và không hiện nút ghi mốc.
+     if(!this.stopConfirmed){
+       this.stopConfirmed=true;
+       this.positionChecked=false;
+       this.positionReferenceTag=Number(this.d.check||0);
+       this.cachedArea=Number(area||this.cachedArea||0);
+       this.audio('dungxe.mp3');
+       event('REPEAT_CHECK_TARGET_STOP',{
+         course:this.key,
+         tag:this.d.check,
+         area:this.cachedArea>0?Math.round(this.cachedArea):null,
+         positionCheck:false,
+         audio:'dungxe.mp3'
+       });
+       set('status',`${this.key.toUpperCase()} — DỪNG XE — KHÔNG KIỂM TRA VỊ TRÍ`);
+     }
+     showPositionConfirm(false);
+     return;
+   }
+
+  if(this.key==='b03'){
        this.areaHistory=[];
        this.warnedTimeout=false;
        this.warnedRollback=false;
@@ -633,6 +656,72 @@ class CourseRule{
      }
    }
 
+   return 'WAITING';
+ }
+ repeatTimedNoPosition(tag,visible,t){
+   const exactStartTag=(tag===this.d.start);
+   const exactCheckTag=(tag===this.d.check);
+
+   // B08/B12: KHÔNG kiểm tra vị trí. TAG kiểm tra chỉ dùng để phát DỪNG XE.
+   // Sau TAG vào bài lần 1, bộ đếm 120s chờ TAG vào bài lần 2.
+   if(this.state===0&&exactStartTag&&visible){
+     this.audio('batdau.mp3');
+     this.state=1;
+     this.startedAt=t;
+     this.repeatStartTagCount=1;
+     this.repeatStartWaitingReturn=true;
+     this.repeatStartAt=t;
+     this.repeatStartDeadlineAt=t+120000;
+     this.repeatStartDone=false;
+     this.checkAudioPlayed=false;
+
+     set('status',`${this.key.toUpperCase()} — VÀO BÀI — 120s — CHỜ TAG ${this.d.start} LẦN 2`);
+     event('REPEAT_120S_NO_POSITION_START',{
+       course:this.key,
+       startTag:tag,
+       checkTag:this.d.check,
+       timed120s:true,
+       positionCheck:false,
+       deadlineMs:120000
+     });
+     return 'REPEAT_START';
+   }
+
+   if(this.state===1){
+     // TAG kiểm tra (82/123) chỉ phát DỪNG XE một lần, tuyệt đối không so sánh diện tích.
+     if(exactCheckTag&&visible&&!this.checkAudioPlayed){
+       this.checkAudioPlayed=true;
+       this.cachedArea=Number(area||0);
+       this.audio('dungxe.mp3');
+       set('status',`${this.key.toUpperCase()} — TAG ${tag} — DỪNG XE`);
+       event('REPEAT_CHECK_TAG_STOP_AUDIO',{
+         course:this.key,
+         checkTag:tag,
+         area:this.cachedArea>0?Math.round(this.cachedArea):null,
+         positionCheck:false,
+         audio:'dungxe.mp3'
+       });
+       return 'CHECK_STOP_AUDIO';
+     }
+
+     // TAG vào bài lần 2 chỉ được chốt khi TAG lần 1 đã rời khung hình.
+     if(exactStartTag&&visible){
+       if(this.repeatStartWaitingReturn)return 'WAITING';
+       this.repeatStartTagCount=2;
+       this.repeatStartDone=true;
+       this.repeatStartDeadlineAt=0;
+       event('REPEAT_SECOND_START_TAG',{
+         course:this.key,
+         startTag:tag,
+         checkTag:this.d.check,
+         elapsedMs:Math.max(0,t-(this.repeatStartAt||t)),
+         positionCheck:false
+       });
+       set('status',`${this.key.toUpperCase()} — TAG ${tag} LẦN 2 — HOÀN THÀNH`);
+       this.finish('PASS',`Hoàn thành ${this.key.toUpperCase()} — đủ 2 lần TAG vào bài`);
+       return 'FINISHED';
+     }
+   }
    return 'WAITING';
  }
  b08(tag,visible,t){if((this.state===1||this.state===2)&&this.startedAt&&t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian bài 8');this.state=3}return}if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.startedAt=t;this.state=1}else if(this.state===1&&tag===82&&visible){this.audio('dung.mp3');this.state=2}else if(this.state===2&&this.matchesStart(tag)&&visible){this.finish('PASS','Hoàn thành bài 8');this.state=3}}

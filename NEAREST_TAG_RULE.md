@@ -1,4 +1,4 @@
-# Quy tắc chọn TAG gần nhất — V1.4.3
+# Quy tắc chọn TAG gần nhất — V1.4.4
 
 Detector vẫn quét AprilTag 36h11 như cũ và có thể trả về nhiều TAG trong cùng một khung hình.
 
