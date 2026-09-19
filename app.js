@@ -74,7 +74,7 @@ function startTotal18Ticker(engineRef){
 
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
-const SAHINH_API_URL = window.SAHINH_API_URL || localStorage.getItem('sahinh_api_url_v1') || '';
+const SAHINH_API_URL = String(window.SAHINH_API_URL || '').trim();
 const audioMem = new Map();
 const criticalAudioMem = new Map();
 let audioUnlocked = false;
@@ -414,21 +414,51 @@ async function playErrorSequence(course,primary,text=''){
   return playSharedAudio('thitruot.mp3');
 }
 function initGasConfig(){
-  const input=$('gasUrl'), btn=$('saveGasBtn');
-  if(input) input.value=SAHINH_API_URL||'';
-  if(btn) btn.onclick=()=>{
-    const v=String(input?.value||'').trim();
-    if(!v){alertMsg('Chưa nhập URL Google Apps Script');return;}
-    localStorage.setItem('sahinh_api_url_v1',v);
-    window.SAHINH_API_URL=v;
-    alertMsg('Đã lưu kết nối Google Sheet / Apps Script');
-  };
+  // V2.1.3: URL Apps Script cố định trong gas-config.js, không cho người dùng sửa trên app.
+}
+function setLoginProgress(text, kind='info', spinning=false){
+  const box=$('loginProgress'), label=$('loginProgressText'), spinner=$('loginSpinner');
+  if(label)label.textContent=text||'';
+  if(box)box.className='login-progress '+(kind||'info');
+  if(spinner)spinner.classList.toggle('hidden',!spinning);
+}
+function setLoginBusy(busy){
+  const btn=$('loginBtn');
+  if(btn){btn.disabled=!!busy;btn.textContent=busy?'ĐANG KIỂM TRA…':'ĐĂNG NHẬP';}
+}
+function showLoginError(message,kind='err'){
+  const e=$('loginError');
+  if(!e)return;
+  e.textContent=message||'';
+  e.className='login-error '+kind;
+  e.style.display=message?'block':'none';
 }
 async function apiPost(body){
-  if(!SAHINH_API_URL) throw Error('Chua cau hinh URL Google Apps Script de dang nhap giao vien');
-  const r=await fetch(SAHINH_API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(body)});
-  if(!r.ok) throw Error('API HTTP '+r.status);
-  return await r.json();
+  if(!SAHINH_API_URL) throw Error('Chưa cấu hình máy chủ xác thực.');
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),15000);
+  try{
+    const r=await fetch(SAHINH_API_URL,{
+      method:'POST',
+      mode:'cors',
+      credentials:'omit',
+      cache:'no-store',
+      redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8','Accept':'application/json'},
+      body:JSON.stringify(body),
+      signal:controller.signal
+    });
+    const text=await r.text();
+    let payload;
+    try{payload=JSON.parse(text);}catch(_){
+      throw Error(r.ok ? 'Máy chủ trả về dữ liệu không hợp lệ. Hãy kiểm tra lại bản Deploy Apps Script.' : `API HTTP ${r.status}`);
+    }
+    if(!r.ok)throw Error(payload?.message||payload?.error||`API HTTP ${r.status}`);
+    return payload;
+  }catch(err){
+    if(err?.name==='AbortError')throw Error('Máy chủ phản hồi quá chậm. Vui lòng thử lại.');
+    throw err;
+  }finally{clearTimeout(timeout);}
 }
 function event(type,data={}){if(!engine)return;engine.events.push({at:new Date().toISOString(),type,...data});persist();}
 function persist(){if(engine)localStorage.setItem('sahinh_exam_v2',JSON.stringify(engine));}
@@ -1548,6 +1578,8 @@ function unwrapAuthResponse(payload){
 }
 
 document.addEventListener('DOMContentLoaded',async()=>{
+  // V2.1.3: URL API không còn do người dùng cấu hình. Xóa cấu hình cũ để tránh dùng nhầm server.
+  try{localStorage.removeItem('sahinh_api_url_v1')}catch(_){}
   showLocalVehicleProfile();
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
   const KEY='sahinh_teacher_session_v2';
@@ -1608,7 +1640,8 @@ document.addEventListener('DOMContentLoaded',async()=>{
     if(authTimer){clearInterval(authTimer);authTimer=null}
     show(null);
     const e=id('loginError');
-    if(e){e.textContent=message;e.style.display='block'}
+    if(e){e.textContent=message;e.className='login-error '+(message.includes('đã bị khóa')?'lock':'err');e.style.display='block'}
+    setLoginProgress(message.includes('đã bị khóa')?'Tài khoản bị khóa — cần ADMIN mở lại.':'Phiên đã kết thúc — vui lòng đăng nhập lại.','err',false);
     alertMsg(message,5000);
   }
   async function validateCurrentSession(reason='background'){
@@ -1625,7 +1658,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
       const d=await apiPost({action:'validate',token:t.token});
       const r=unwrapAuthResponse(d);
       if(!r.ok || !r.data?.ok){
-        await forceLogout(r.message || '🔒 Tài khoản không còn được phép sử dụng. Vui lòng đăng nhập lại.');
+        await forceLogout(r.data?.code==='ACCOUNT_LOCKED' || r.message?.includes('ACCOUNT_LOCKED') ? '🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).' : (r.message || '🔒 Tài khoản không còn được phép sử dụng. Vui lòng đăng nhập lại.'));
         return false;
       }
       const teacher=r.data.teacher||r.data.data?.teacher||t;
@@ -1666,24 +1699,56 @@ document.addEventListener('DOMContentLoaded',async()=>{
   }
 
   async function doLogin(){
-    const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
-    if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
-    if(!navigator.onLine){e.textContent='Cần Internet để xác thực tài khoản giáo viên.';e.style.display='block';return}
+    const u=id('loginUser').value.trim(),p=id('loginPass').value;
+    showLoginError('');
+    if(!u||!p){showLoginError('Vui lòng nhập đầy đủ tài khoản và mật khẩu.');setLoginProgress('Chưa thể xác thực — thiếu thông tin.','err',false);return}
+    if(!navigator.onLine){showLoginError('Cần Internet để xác thực tài khoản giáo viên.');setLoginProgress('Không có kết nối Internet.','err',false);return}
+    setLoginBusy(true);
     try{
-      e.style.display='none'; setAuthStatus('⏳ Đang xác thực…','warn');
+      setLoginProgress('① Đang kết nối máy chủ xác thực…','info',true);
+      setAuthStatus('⏳ Đang kết nối máy chủ…','warn');
       const d=await apiPost({action:'login',taiKhoan:u,matKhau:p,username:u,password:p});
       const r=unwrapAuthResponse(d);
-      if(!r.ok || !r.data?.ok)throw Error(r.message||'Đăng nhập thất bại');
+      if(!r.ok || !r.data?.ok){
+        const locked=(r.data?.code==='ACCOUNT_LOCKED'||r.message?.includes('đã bị khóa')||r.message?.includes('ACCOUNT_LOCKED'));
+        const msg=locked?'🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).':(r.message||'Sai tài khoản hoặc mật khẩu.');
+        showLoginError(msg,'err');
+        setLoginProgress(locked?'Tài khoản bị khóa — không được phép truy cập.':'Đăng nhập thất bại — vui lòng kiểm tra lại tài khoản/mật khẩu.','err',false);
+        setAuthStatus('❌ Chưa xác thực','err');
+        return;
+      }
+
+      setLoginProgress('② Tài khoản hợp lệ. Đang tạo phiên đăng nhập…','info',true);
       clearTeacherSession();
       const teacher=saveTeacherSession(r.data||r);
-      show(teacher);
-      e.style.display='none';
+
+      setLoginProgress('③ Đang kiểm tra quyền tài khoản từ máy chủ…','info',true);
+      const vr=unwrapAuthResponse(await apiPost({action:'validate',token:teacher.token}));
+      if(!vr.ok || !vr.data?.ok){
+        const locked=(vr.data?.code==='ACCOUNT_LOCKED'||vr.message?.includes('đã bị khóa')||vr.message?.includes('ACCOUNT_LOCKED'));
+        clearTeacherSession();
+        const msg=locked?'🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).':(vr.message||'Tài khoản không còn được phép sử dụng.');
+        showLoginError(msg,'err');
+        setLoginProgress(msg,'err',false);
+        setAuthStatus('❌ Quyền không hợp lệ','err');
+        return;
+      }
+      const checkedTeacher=vr.data.teacher||teacher;
+      const merged={...teacher,...checkedTeacher,expiresAt:Number(vr.data.expiresAt||teacher.expiresAt),loginDayKey:String(vr.data.dayKey||teacher.loginDayKey),lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
+      localStorage.setItem(KEY,JSON.stringify(merged));
+      window.currentTeacher=merged;
+      show(merged);
       scheduleAuthChecks();
+      setLoginProgress('④ Đăng nhập thành công — quyền hợp lệ.','ok',false);
       setAuthStatus('✅ Đăng nhập & xác thực thành công','ok');
+      setTimeout(()=>{const el=$('loginProgress');if(el)el.classList.add('hidden')},1200);
     }catch(x){
-      e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block';
+      const msg=x?.message||'Không thể đăng nhập.';
+      showLoginError('⚠ '+msg,'err');
+      setLoginProgress('Không thể hoàn tất đăng nhập. Vui lòng thử lại.','err',false);
       setAuthStatus('❌ Chưa xác thực','err');
-    }
+      clearTeacherSession();
+    }finally{setLoginBusy(false);}
   }
 
   id('loginBtn').onclick=doLogin;

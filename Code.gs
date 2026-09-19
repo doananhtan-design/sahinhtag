@@ -295,7 +295,7 @@ function teacherLogin(username, password) {
 
   const row = teacherRowByAccount_(username);
   if (!row) return {ok:false, message:'Sai tài khoản hoặc mật khẩu.'};
-  if (row.trangThai !== 'HOAT_DONG') return {ok:false, message:'Tài khoản đang bị khóa hoặc không hoạt động.'};
+  if (row.trangThai !== 'HOAT_DONG') return {ok:false, code:'ACCOUNT_LOCKED', message:'Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).'};
   if (row.matKhauHash !== sha256_(password)) return {ok:false, message:'Sai tài khoản hoặc mật khẩu.'};
 
   const now=Date.now(), token=Utilities.getUuid();
@@ -325,7 +325,7 @@ function validateSession(token) {
   if (String(s.dayKey||'')!==todayKey_()) {removeSession_(token);return {ok:false,message:'Đã sang ngày mới. Vui lòng đăng nhập lại.'};}
   if (String(s.quyen||'').toUpperCase()!=='ADMIN') {
     const row=teacherRowByAccount_(s.taiKhoan);
-    if (!row || row.trangThai!=='HOAT_DONG') {removeSession_(token);return {ok:false,message:'Tài khoản đã bị khóa hoặc ngừng hoạt động. Vui lòng đăng nhập lại.'};}
+    if (!row || row.trangThai!=='HOAT_DONG') {removeSession_(token);return {ok:false,code:'ACCOUNT_LOCKED',message:'Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).'};}
   }
   return {ok:true,teacher:{maGV:String(s.maGV||''),taiKhoan:String(s.taiKhoan||''),hoTen:String(s.hoTen||''),quyen:String(s.quyen||'GIAOVIEN')},
     loginAt:Number(s.loginAt||0),expiresAt:Number(s.expiresAt||0),dayKey:String(s.dayKey||'')};
