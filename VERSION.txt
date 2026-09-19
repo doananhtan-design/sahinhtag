@@ -1,1 +1,1 @@
-SA HÌNH AI\nVersion: V2.1.4 AUTH24H\nBase: V1.4.15\nChange: khóa URL Apps Script trong gas-config.js; làm sạch index.html; giữ nguyên toàn bộ engine AprilTag/luật thi; kiểm tra tài khoản 24h/ngày mới; khóa tài khoản buộc đăng nhập lại.
+SA HÌNH AI V2.1.6 — AUTH 24H / FIX TEACHER LOGIN

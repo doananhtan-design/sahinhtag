@@ -257,23 +257,66 @@ function todayKey_() {
   return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
 }
 
-function teacherRowByAccount_(username) {
+function normalizeHeader_(v) {
+  return String(v == null ? '' : v)
+    .normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d').replace(/Đ/g,'D')
+    .toLowerCase().replace(/[^a-z0-9]/g,'');
+}
+
+function findHeaderIndex_(headers, aliases) {
+  const map = {};
+  (headers || []).forEach((h,i)=>{ map[normalizeHeader_(h)] = i; });
+  for (const a of aliases) {
+    const idx = map[normalizeHeader_(a)];
+    if (idx !== undefined) return idx;
+  }
+  return -1;
+}
+
+function teacherSheetSchema_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(APP.SHEET_TEACHER);
   if (!sh) return null;
   const v = sh.getDataRange().getValues();
   const h = v[0] || [];
-  const ix = {};
-  h.forEach((x,i)=>ix[String(x)] = i);
-  for (let i=1;i<v.length;i++) {
-    const r=v[i];
-    if (String(r[ix.taiKhoan]||'').trim().toLowerCase() !== String(username||'').trim().toLowerCase()) continue;
+  return {
+    sh, v,
+    maGV: findHeaderIndex_(h,['maGV','Mã GV','Mã giáo viên','id']),
+    taiKhoan: findHeaderIndex_(h,['taiKhoan','Tài khoản','Tên đăng nhập','username','user','sdt','Số điện thoại']),
+    matKhauHash: findHeaderIndex_(h,['matKhauHash','Mật khẩu hash','passwordhash','hashedpassword']),
+    matKhauPlain: findHeaderIndex_(h,['matKhau','Mật khẩu','password','pass']),
+    hoTen: findHeaderIndex_(h,['hoTen','Họ tên','Họ và tên','fullname','name']),
+    quyen: findHeaderIndex_(h,['quyen','Quyền','role']),
+    trangThai: findHeaderIndex_(h,['trangThai','Trạng thái','status','state']),
+    ghiChu: findHeaderIndex_(h,['ghiChu','Ghi chú','note'])
+  };
+}
+
+function teacherRowByAccount_(username) {
+  const schema = teacherSheetSchema_();
+  if (!schema) return null;
+  const q = String(username || '').trim().toLowerCase();
+  if (!q) return null;
+  for (let i=1;i<schema.v.length;i++) {
+    const r=schema.v[i];
+    const account = schema.taiKhoan >= 0 ? String(r[schema.taiKhoan] == null ? '' : r[schema.taiKhoan]).trim().toLowerCase() : '';
+    const maGV = schema.maGV >= 0 ? String(r[schema.maGV] == null ? '' : r[schema.maGV]).trim().toLowerCase() : '';
+    if (q!==account && q!==maGV) continue;
+    const statusRaw = schema.trangThai >= 0 ? String(r[schema.trangThai] == null ? '' : r[schema.trangThai]).trim().toUpperCase() : 'HOAT_DONG';
+    const hash = schema.matKhauHash >= 0 ? String(r[schema.matKhauHash] == null ? '' : r[schema.matKhauHash]).trim() : '';
+    const plain = schema.matKhauPlain >= 0 && schema.matKhauPlain !== schema.matKhauHash
+      ? String(r[schema.matKhauPlain] == null ? '' : r[schema.matKhauPlain])
+      : '';
     return {
-      maGV:String(r[ix.maGV]||''),
-      taiKhoan:String(r[ix.taiKhoan]||''),
-      hoTen:String(r[ix.hoTen]||''),
-      quyen:String(r[ix.quyen]||'GIAOVIEN'),
-      trangThai:String(r[ix.trangThai]||'').trim().toUpperCase(),
-      matKhauHash:String(r[ix.matKhauHash]||'')
+      rowNumber:i+1,
+      maGV:schema.maGV >= 0 ? String(r[schema.maGV] == null ? '' : r[schema.maGV]).trim() : '',
+      taiKhoan:account ? String(r[schema.taiKhoan] == null ? '' : r[schema.taiKhoan]).trim() : (maGV ? String(r[schema.maGV] == null ? '' : r[schema.maGV]).trim() : ''),
+      hoTen:schema.hoTen >= 0 ? String(r[schema.hoTen] == null ? '' : r[schema.hoTen]).trim() : '',
+      quyen:schema.quyen >= 0 ? String(r[schema.quyen] == null ? '' : r[schema.quyen]).trim().toUpperCase() || 'GIAOVIEN' : 'GIAOVIEN',
+      trangThai:statusRaw || 'HOAT_DONG',
+      matKhauHash:hash,
+      matKhauPlain:plain,
+      _schema:schema
     };
   }
   return null;
@@ -294,9 +337,41 @@ function teacherLogin(username, password) {
   if (!username || !password) return {ok:false, message:'Vui lòng nhập tài khoản và mật khẩu.'};
 
   const row = teacherRowByAccount_(username);
-  if (!row) return {ok:false, message:'Sai tài khoản hoặc mật khẩu.'};
+  if (!row) return {ok:false, code:'ACCOUNT_NOT_FOUND', message:'Không tìm thấy tài khoản giáo viên. Vui lòng kiểm tra lại tài khoản.'};
   if (row.trangThai !== 'HOAT_DONG') return {ok:false, code:'ACCOUNT_LOCKED', message:'Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).'};
-  if (row.matKhauHash !== sha256_(password)) return {ok:false, message:'Sai tài khoản hoặc mật khẩu.'};
+
+  const suppliedHash = sha256_(password).toLowerCase();
+  const storedHash = String(row.matKhauHash || '').replace(/^sha256:/i,'').trim().toLowerCase();
+  let passwordOk = false;
+
+  // 1) Nếu có cột hash: so sánh SHA-256.
+  if (storedHash && isSha256Hex_(storedHash)) {
+    passwordOk = storedHash === suppliedHash;
+  }
+
+  // 2) Nếu sheet hiện tại của trung tâm dùng cột 'matKhau':
+  //    - cho phép mật khẩu plain-text hiện tại (ví dụ 123456);
+  //    - nếu ô đã được nâng cấp thành SHA-256 thì cũng chấp nhận.
+  if (!passwordOk && row.matKhauPlain) {
+    const storedCredential = String(row.matKhauPlain).trim();
+    if (isSha256Hex_(storedCredential)) {
+      passwordOk = storedCredential.toLowerCase() === suppliedHash;
+    } else {
+      passwordOk = storedCredential === password;
+      if (passwordOk) {
+        // Nâng cấp tự động từ mật khẩu plain-text sang SHA-256.
+        // Header vẫn giữ nguyên 'matKhau', nên các tài khoản cũ không cần sửa thủ công.
+        const sh = row._schema.sh;
+        if (row._schema.matKhauHash >= 0) {
+          sh.getRange(row.rowNumber, row._schema.matKhauHash + 1).setValue(suppliedHash);
+        } else if (row._schema.matKhauPlain >= 0) {
+          sh.getRange(row.rowNumber, row._schema.matKhauPlain + 1).setValue(suppliedHash);
+        }
+      }
+    }
+  }
+
+  if (!passwordOk) return {ok:false, code:'PASSWORD_INVALID', message:'Sai mật khẩu. Vui lòng kiểm tra lại mật khẩu.'};
 
   const now=Date.now(), token=Utilities.getUuid();
   const session={
@@ -513,6 +588,10 @@ function requireAdmin_(token) {
   if (!s) throw new Error('Phiên đăng nhập hết hạn.');
   if (String(s.quyen).toUpperCase() !== 'ADMIN') throw new Error('Chỉ ADMIN được thực hiện thao tác này.');
   return s;
+}
+
+function isSha256Hex_(value) {
+  return /^[a-f0-9]{64}$/i.test(String(value || '').trim());
 }
 
 function sha256_(text) {
