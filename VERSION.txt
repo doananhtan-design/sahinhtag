@@ -1,3 +1,3 @@
-V2.1.0
-Built from V1.4.15-STABLE.
-Key fixes: isolated priority DUNGXE audio for B08/B12, independent 120s warning timers for B04/B06, independent 3s KT timer, nearest-tag hold, auto reset after KT completion, retained B11 local speed and full audio.
+V2.1.1
+Built from V2.1.0 (itself from V1.4.15-STABLE).
+Fix: B12 DUNGXE reuses primed audioMem like the working B08 path; fix B11 local distance save feedback/blur overwrite.

@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.0';
+const DEPLOY_VERSION='V2.1.1';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -289,24 +289,29 @@ async function playCriticalDirect(course,file){
     reportAudioError(`./audio/${course}/${file}`,null,'Sai đường dẫn audio ưu tiên');
     return false;
   }
+  const priorityCourse=String(course||'').toLowerCase();
+  // B08 đã ổn định với luồng criticalAudioMem. B12 dùng chính Audio element
+  // đã được prime/unlock trong audioMem để tránh Android chặn Audio mới.
+  const mem=(priorityCourse==='b12')?audioMem:criticalAudioMem;
   const seq=++criticalAudioSeq;
   try{
-    let a=criticalAudioMem.get(src);
+    let a=mem.get(src);
     if(!a || a.error || a.networkState===HTMLMediaElement.NETWORK_NO_SOURCE){
       a=new Audio();
       a.preload='auto';
       a.playsInline=true;
       a.src=src;
-      criticalAudioMem.set(src,a);
+      mem.set(src,a);
     }
-    if(criticalAudio && criticalAudio!==a){
+    if(priorityCourse!=='b12' && criticalAudio && criticalAudio!==a){
       try{criticalAudio.pause();criticalAudio.currentTime=0;}catch(_){ }
     }
     // TAG 82/123 audio is priority: stop any course audio still playing first.
     if(activeAudio && activeAudio!==a){
       try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){ }
     }
-    criticalAudio=a;
+    activeAudio=a;
+    if(priorityCourse!=='b12') criticalAudio=a;
     try{a.pause();a.currentTime=0;}catch(_){ }
     a.muted=false;
     if(a.readyState<2){
@@ -328,10 +333,10 @@ async function playCriticalDirect(course,file){
     await a.play();
     if(seq!==criticalAudioSeq){try{a.pause();a.currentTime=0;}catch(_){ }return false;}
     set('status',`🔊 ƯU TIÊN DUNGXE: ${src}`);
-    event('AUDIO_CRITICAL_PLAY',{src,course,file,ok:true});
+    event('AUDIO_CRITICAL_PLAY',{src,course,file,ok:true,mem:priorityCourse==='b12'?'audioMem':'criticalAudioMem'});
     return true;
   }catch(e){
-    if(seq===criticalAudioSeq) reportAudioError(src,e,`Audio ưu tiên TAG kiểm tra. readyState=${criticalAudioMem.get(src)?.readyState||0}, networkState=${criticalAudioMem.get(src)?.networkState||0}, mediaError=${criticalAudioMem.get(src)?.error?.code||0}`);
+    if(seq===criticalAudioSeq) reportAudioError(src,e,`Audio ưu tiên TAG kiểm tra. readyState=${mem.get(src)?.readyState||0}, networkState=${mem.get(src)?.networkState||0}, mediaError=${mem.get(src)?.error?.code||0}`);
     return false;
   }
 }
@@ -1550,16 +1555,21 @@ document.addEventListener('DOMContentLoaded',async()=>{
   $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
   $('saveB11DistanceBtn')?.addEventListener('click',e=>{
     e.preventDefault();
+    e.stopPropagation();
     try{
-      const value=saveLocalB11Distance($('b11DistanceInput')?.value);
-      set('status',`✅ B11 — ĐÃ LƯU KHOẢNG CÁCH ${value} m CHO ${getLocalVehicleId()}`);
-      alertMsg(`✅ B11 — Đã lưu ${value} m trên xe ${getLocalVehicleId()}`,2500);
+      const input=$('b11DistanceInput');
+      const value=saveLocalB11Distance(input?.value);
+      if(input) input.value=String(value);
+      const msg=`✅ B11 — ĐÃ THAY ĐỔI THÀNH CÔNG: ${value} m · XE ${getLocalVehicleId()}`;
+      set('b11DistanceStatus',msg);
+      set('status',msg);
+      alertMsg(msg,3000);
     }catch(err){
-      set('b11DistanceStatus','❌ '+(err.message||err));
-      alertMsg('❌ '+(err.message||err),3000);
+      const msg='❌ B11 — '+(err.message||err);
+      set('b11DistanceStatus',msg);
+      alertMsg(msg,3000);
     }
   });
-  $('b11DistanceInput')?.addEventListener('blur',()=>renderB11DistanceTool());
   renderB11DistanceTool();
   $('confirmPositionBtn').addEventListener('click',e=>{
     e.preventDefault();
