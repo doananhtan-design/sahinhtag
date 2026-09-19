@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V1.4.16';
+const DEPLOY_VERSION='V1.4.15';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -722,40 +722,7 @@ class CourseRule{
    }
    return 'WAITING';
  }
- simpleTimed(tag,visible,t){
-  if(this.state===0&&this.matchesStart(tag)&&visible){
-    this.audio('batdau.mp3');
-    this.state=1;
-    this.startedAt=t;
-    event('SIMPLE_TIMED_START',{course:this.key,startTag:tag,limitMs:this.d.limit*1000});
-    return;
-  }
-  if(this.state===1){
-    // B04/B06: hết 120s mà chưa thấy TAG kết thúc thì phát quatg1.mp3.
-    if(t-this.startedAt>=this.d.limit*1000){
-      if(!this.warnedTimeout){
-        this.warnedTimeout=true;
-        const timeoutAudio=this.key==='b04'?'./audio/b06/quatg1.mp3':'./audio/b06/quatg1.mp3';
-        if(this.key==='b04'){
-          playDirect('b04','quatg1.mp3').then(ok=>{
-            if(!ok)playDirect('b06','quatg1.mp3');
-          }).catch(()=>playDirect('b06','quatg1.mp3'));
-          event('SIMPLE_TIMED_TIMEOUT',{course:this.key,endTag:this.d.end,limitMs:this.d.limit*1000,audioPrimary:'./audio/b04/quatg1.mp3',audioFallback:'./audio/b06/quatg1.mp3'});
-        }else{
-          this.audio('quatg1.mp3');
-          event('SIMPLE_TIMED_TIMEOUT',{course:this.key,endTag:this.d.end,limitMs:this.d.limit*1000,audio:'./audio/b06/quatg1.mp3'});
-        }
-        this.finish('TIMEOUT',`Quá ${this.d.limit} giây — không thấy TAG ${this.d.end}`);
-      }
-      return 'TIMEOUT';
-    }
-    if(this.d.end&&tag===this.d.end&&visible){
-      this.finish('PASS','Hoàn thành bài');
-      return 'FINISHED';
-    }
-  }
-  return 'WAITING';
- }
+ simpleTimed(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.state=1;this.startedAt=t;return}if(this.state===1){if(t-this.startedAt>=this.d.limit*1000){if(!this.warnedTimeout){this.audio('quagio.mp3');this.warnedTimeout=true;this.finish('TIMEOUT','Quá thời gian')}}if(this.d.end&&tag===this.d.end&&visible)this.finish('PASS','Hoàn thành bài')} }
  instant(tag,visible,t){if(this.state===0&&this.matchesStart(tag)&&visible){this.audio('batdau.mp3');this.finish('PASS','Hoàn thành bài');this.state=1}}
  positionRule(tag,area,visible,t){
    const exactStartTag=(tag===this.d.start);
@@ -1180,11 +1147,14 @@ class ExamEngine{
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
+       this.result='COMPLETED';
        this.totalElapsed=Date.now()-this.startedAt;
        event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});
-       set('status','🏆 HOÀN THÀNH SA HÌNH — ĐANG RESET');
-       alertMsg('🏆 HOÀN THÀNH SA HÌNH — TỰ ĐỘNG RESET VỀ TAG 01',7000);
-       // current vẫn được giữ cho update() gọi autoResetToTag01() sau khi audio KT hoàn tất.
+       set('status','HOÀN THÀNH');
+       alertMsg('🏆 HOÀN THÀNH SA HÌNH',7000);
+       set('course','HOÀN THÀNH');
+       set('startBtn','✅ HOÀN THÀNH — THI LẠI ĐỂ BẮT ĐẦU');
+       this.current=null;
      }else{
        set('status',this.current.result==='PASS'?'ĐẠT — TIẾP TỤC BÀI TIẾP THEO':'CÓ LỖI — TIẾP TỤC BÀI TIẾP THEO');
        if(finished==='b01' && this.total18StartAt && !this.tag141Seen){
@@ -1196,50 +1166,6 @@ class ExamEngine{
        this.current=null;
      }
    }
- }
- autoResetToTag01(t){
-   // Kết thúc Bài KT -> reset toàn bộ phiên nhưng giữ camera/PWA đang mở.
-   try{
-     if(activeAudio){activeAudio.pause();activeAudio.currentTime=0;}
-   }catch(_){}
-   this.rules.forEach(r=>r.reset());
-   this.current=null;
-   this.index=-1;
-   this.lastAnnounce=-1;
-   this.lastChecked=-1;
-   this.lastCx=-1;
-   this.lastCy=-1;
-   this.lastArea=0;
-   this.stableAt=0;
-   this.result='RUNNING';
-   this.startedAt=Date.now();
-   this.initAtForCommand=this.startedAt;
-   this.totalElapsed=0;
-   this.total18StartAt=0;
-   this.total18DeadlineAt=0;
-   this.tag141Seen=false;
-   this.total18Expired=false;
-   this.total18NextReminderAt=0;
-   this.tagLockUntil=0;
-   this.emergencyTriggered=false;
-   this.emergencyPendingAt=0;
-   hideSecondaryTimer();
-   showPositionConfirm(false);
-   set('course','WAITING');
-   set('tag','--');
-   set('stable','0.0s');
-   set('timer','00:00');
-   set('courseTimer','--');
-   set('totalTimer','18:00');
-   set('totalTimerBig','18:00');
-   set('totalClockHint','Bắt đầu khi phát báo bài B01');
-   set('status','✅ ĐÃ HOÀN THÀNH — SẴN SÀNG NHẬN TAG 01');
-   const sb=$('startBtn');
-   if(sb){sb.style.display=window.currentTeacher?'block':'none';sb.disabled=true;sb.textContent='⏳ CHỜ TAG 01';sb.classList.add('running');}
-   const rb=$('retryBtn');
-   if(rb)rb.classList.remove('hidden');
-   stopTotal18Ticker();
-   event('AUTO_RESET_AFTER_KT',{nextTag:1,nextCourse:'B01',at:t});
  }
  update(t){
    if(this.result!=='RUNNING')return;
@@ -1278,19 +1204,6 @@ class ExamEngine{
      this.total18NextReminderAt=t+5000;
      set('status','⛔ QUÁ TỔNG THỜI GIAN — CHỜ TAG 141');
    }
-   // B04/B06: hiển thị đồng hồ phụ 120s kể từ TAG vào bài.
-   if(this.current&&this.current.startedAt&&(this.current.key==='b04'||this.current.key==='b06')&&!this.current.is_finished){
-     const remain120=Math.max(0,120000-(t-this.current.startedAt));
-     set('courseTimer',`${Math.ceil(remain120/1000)}s`);
-     showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remain120,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.end}`);
-   }
-
-   // Sau khi KT phát HOÀN THÀNH đủ 2 lần: tự reset về trạng thái chờ TAG 01.
-   if(this.current&&this.current.key==='KT'&&this.current.is_finished){
-     this.autoResetToTag01(t);
-     return;
-   }
-
    if(this.current&&this.current.startedAt){
      if((this.current.key==='b08'||this.current.key==='b12')&&this.current.repeatStartDeadlineAt&&!this.current.repeatStartDone){
        const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
