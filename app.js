@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.6';
+const DEPLOY_VERSION='V2.1.1';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -74,7 +74,9 @@ function startTotal18Ticker(engineRef){
 
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
-const SAHINH_API_URL = String(window.SAHINH_API_URL || '').trim();
+const SAHINH_API_URL = window.SAHINH_API_URL || '';
+const AUTH_SESSION_KEY = 'sahinh_teacher_session_v2';
+const AUTH_CHECK_INTERVAL_MS = 15 * 60 * 1000;
 const audioMem = new Map();
 const criticalAudioMem = new Map();
 let audioUnlocked = false;
@@ -413,52 +415,75 @@ async function playErrorSequence(course,primary,text=''){
   if(audioPlaySeq!==seqBefore+1)return false;
   return playSharedAudio('thitruot.mp3');
 }
-function initGasConfig(){
-  // V2.1.3: URL Apps Script cố định trong gas-config.js, không cho người dùng sửa trên app.
-}
-function setLoginProgress(text, kind='info', spinning=false){
-  const box=$('loginProgress'), label=$('loginProgressText'), spinner=$('loginSpinner');
-  if(label)label.textContent=text||'';
-  if(box)box.className='login-progress '+(kind||'info');
-  if(spinner)spinner.classList.toggle('hidden',!spinning);
-}
-function setLoginBusy(busy){
-  const btn=$('loginBtn');
-  if(btn){btn.disabled=!!busy;btn.textContent=busy?'ĐANG KIỂM TRA…':'ĐĂNG NHẬP';}
-}
-function showLoginError(message,kind='err'){
-  const e=$('loginError');
-  if(!e)return;
-  e.textContent=message||'';
-  e.className='login-error '+kind;
-  e.style.display=message?'block':'none';
-}
 async function apiPost(body){
-  if(!SAHINH_API_URL) throw Error('Chưa cấu hình máy chủ xác thực.');
-  const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),15000);
+  if(!SAHINH_API_URL) throw Error('Không có địa chỉ máy chủ xác thực.');
+  const r=await fetch(SAHINH_API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify(body),
+    cache:'no-store'
+  });
+  if(!r.ok) throw Error('Không kết nối được máy chủ (HTTP '+r.status+').');
+  const text=await r.text();
+  let data;
+  try{data=JSON.parse(text);}catch(_){throw Error('Máy chủ trả về dữ liệu không hợp lệ.');}
+  return data;
+}
+
+function authResult_(response){
+  const outer=response||{};
+  const inner=(outer && outer.data && typeof outer.data==='object') ? outer.data : outer;
+  return {outer,inner,ok:inner?.ok===true || outer?.ok===true || outer?.success===true};
+}
+
+function authErrorMessage_(response){
+  const a=authResult_(response);
+  const code=a.inner?.code || a.outer?.code || '';
+  const msg=a.inner?.message || a.outer?.message || '';
+  if(code==='ACCOUNT_LOCKED') return '🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).';
+  if(/khóa|khoa|không hoạt động|khong hoat dong/i.test(msg)) return '🔒 Tài khoản đã bị khóa hoặc không hoạt động. Vui lòng liên hệ ADMIN (0914.531.591).';
+  return msg || 'Sai tài khoản hoặc mật khẩu.';
+}
+
+async function validateTeacherSession_(silent=false){
+  const raw=localStorage.getItem(AUTH_SESSION_KEY);
+  if(!raw){return {ok:false,code:'NO_SESSION'};}
+  let saved;
+  try{saved=JSON.parse(raw);}catch(_){localStorage.removeItem(AUTH_SESSION_KEY);return {ok:false,code:'BAD_SESSION'};}
+  if(!saved?.token){localStorage.removeItem(AUTH_SESSION_KEY);return {ok:false,code:'NO_TOKEN'};}
   try{
-    const r=await fetch(SAHINH_API_URL,{
-      method:'POST',
-      mode:'cors',
-      credentials:'omit',
-      cache:'no-store',
-      redirect:'follow',
-      headers:{'Content-Type':'text/plain;charset=utf-8','Accept':'application/json'},
-      body:JSON.stringify(body),
-      signal:controller.signal
-    });
-    const text=await r.text();
-    let payload;
-    try{payload=JSON.parse(text);}catch(_){
-      throw Error(r.ok ? 'Máy chủ trả về dữ liệu không hợp lệ. Hãy kiểm tra lại bản Deploy Apps Script.' : `API HTTP ${r.status}`);
+    const d=await apiPost({action:'validate',token:saved.token});
+    const a=authResult_(d);
+    if(!a.ok){
+      localStorage.removeItem(AUTH_SESSION_KEY);
+      localStorage.removeItem('sahinh_teacher_token_v1');
+      localStorage.removeItem('sahinh_teacher_v1');
+      window.currentTeacher=null;
+      return {ok:false,code:a.inner?.code||a.outer?.code||'INVALID',message:authErrorMessage_(d)};
     }
-    if(!r.ok)throw Error(payload?.message||payload?.error||`API HTTP ${r.status}`);
-    return payload;
+    const teacher=a.inner?.teacher || a.outer?.teacher || saved.teacher || saved;
+    const updated={...saved,teacher,loginAt:Number(a.inner?.loginAt||saved.loginAt||Date.now()),expiresAt:Number(a.inner?.expiresAt||saved.expiresAt||0),dayKey:String(a.inner?.dayKey||saved.dayKey||'')};
+    localStorage.setItem(AUTH_SESSION_KEY,JSON.stringify(updated));
+    window.currentTeacher=teacher;
+    return {ok:true,teacher,session:updated};
   }catch(err){
-    if(err?.name==='AbortError')throw Error('Máy chủ phản hồi quá chậm. Vui lòng thử lại.');
-    throw err;
-  }finally{clearTimeout(timeout);}
+    if(!silent) return {ok:false,code:'NETWORK',message:'Không kiểm tra được tài khoản. Vui lòng kiểm tra kết nối và thử lại.'};
+    return {ok:false,code:'NETWORK',message:String(err?.message||err)};
+  }
+}
+
+async function requireTeacherAuth_(reason=''){
+  const v=await validateTeacherSession_(false);
+  if(v.ok) return true;
+  if(v.code==='ACCOUNT_LOCKED') {
+    const e=document.getElementById('loginError');
+    if(e){e.textContent='🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).';e.style.display='block';}
+  }
+  try{finishLocal();}catch(_){}
+  document.getElementById('loginOverlay')?.style.setProperty('display','flex');
+  document.getElementById('appTabs')?.classList.add('hidden');
+  document.getElementById('startBtn')?.style.setProperty('display','none');
+  return false;
 }
 function event(type,data={}){if(!engine)return;engine.events.push({at:new Date().toISOString(),type,...data});persist();}
 function persist(){if(engine)localStorage.setItem('sahinh_exam_v2',JSON.stringify(engine));}
@@ -1437,6 +1462,7 @@ function initAppTabs(){
 initAppTabs();
 
 async function startExam(){
+  if(!(await requireTeacherAuth_('startExam'))) return;
   switchAppTab('exam');
   showLocalVehicleProfile();
   stopTotal18Ticker();
@@ -1558,242 +1584,112 @@ async function loop(t){
   raf=requestAnimationFrame(loop);
 }
 
-
-const AUTH_SESSION_MAX_MS = 24*60*60*1000;
-const AUTH_CHECK_INTERVAL_MS = 15*60*1000;
-function authDayKeyLocal(d=new Date()){
-  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
-}
-function unwrapAuthResponse(payload){
-  const outer = payload || {};
-  const inner = (outer && outer.data && typeof outer.data==='object') ? outer.data : outer;
-  const nested = (inner && inner.data && typeof inner.data==='object') ? inner.data : inner;
-  const okValue = nested?.success ?? nested?.ok ?? inner?.success ?? inner?.ok ?? outer?.success ?? outer?.ok;
-  return {
-    ok: okValue !== false,
-    data: nested || {},
-    message: nested?.message || inner?.message || outer?.message || outer?.error || ''
-  };
-}
-
 document.addEventListener('DOMContentLoaded',async()=>{
-  // V2.1.3: URL API không còn do người dùng cấu hình. Xóa cấu hình cũ để tránh dùng nhầm server.
-  try{localStorage.removeItem('sahinh_api_url_v1')}catch(_){}
   showLocalVehicleProfile();
   video=$('video');overlay=$('overlay');overlayCtx=overlay.getContext('2d');workCanvas=document.createElement('canvas');workCtx=workCanvas.getContext('2d',{willReadFrequently:true});
-  const KEY='sahinh_teacher_session_v2';
-  const id=x=>document.getElementById(x);
-  let authBusy=false;
+  const KEY=AUTH_SESSION_KEY;
   let authTimer=null;
-
-  function clearTeacherSession(){
-    try{localStorage.removeItem(KEY)}catch(_){}
-    window.currentTeacher=null;
-  }
-  function saveTeacherSession(result, previous){
-    const teacher = result.teacher || result.data?.teacher || previous?.teacher || result.data || result.teacherData;
-    const token = result.token || result.data?.token || previous?.token;
-    if(!teacher || !token) throw Error('Máy chủ không trả về phiên đăng nhập hợp lệ.');
-    const loginAt = Number(previous?.loginAt) > 0 ? Number(previous.loginAt) : Number(result.loginAt||result.data?.loginAt||Date.now());
-    const dayKey = String(previous?.loginDayKey || result.dayKey || result.data?.dayKey || authDayKeyLocal());
-    const expiresAt = Number(result.expiresAt || result.data?.expiresAt || previous?.expiresAt || (loginAt + AUTH_SESSION_MAX_MS));
-    const t={...teacher,token,loginAt,loginDayKey:dayKey,expiresAt,lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
-    localStorage.setItem(KEY,JSON.stringify(t));
-    window.currentTeacher=t;
-    return t;
-  }
-  function getStoredSession(){
-    try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch(_){return null}
-  }
-  function isLocalSessionExpired(t){
-    if(!t?.token)return true;
-    const loginAt=Number(t.loginAt||0), expiresAt=Number(t.expiresAt||0);
-    if(!loginAt || !expiresAt)return true;
-    if(Date.now()>=expiresAt)return true;
-    if(String(t.loginDayKey||'')!==authDayKeyLocal())return true;
-    if(Date.now()-loginAt>=AUTH_SESSION_MAX_MS)return true;
-    return false;
-  }
-  function setAuthStatus(text,kind=''){
-    const el=id('authStatus'); if(!el)return;
-    el.textContent=text; el.className='auth-status'+(kind?' '+kind:'');
-  }
+  const id=x=>document.getElementById(x);
   function show(t){
     id('loginOverlay').style.display=t?'none':'flex';
-    const tabs=id('appTabs');if(tabs)tabs.classList.toggle('hidden',!t);
+    const tabs=id('appTabs'); if(tabs)tabs.classList.toggle('hidden',!t);
     switchAppTab('exam');
     if(t){
       id('startBtn').style.display='block';
       id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');
       id('teacherCode').textContent=' • '+(t.maGV||t.code||'');
-      const rb=id('teacherRoleBadge'); if(rb)rb.textContent=String(t.quyen||'GIAOVIEN').toUpperCase();
-      setAuthStatus('✅ Quyền đang hợp lệ','ok');
     }else{
       id('startBtn').style.display='none';
-      setAuthStatus('🔒 Chưa đăng nhập','warn');
     }
   }
-  async function forceLogout(message='Phiên đăng nhập đã hết hạn.'){
-    try{finishLocal()}catch(_){}
-    clearTeacherSession();
-    if(authTimer){clearInterval(authTimer);authTimer=null}
-    show(null);
-    const e=id('loginError');
-    if(e){e.textContent=message;e.className='login-error '+(message.includes('đã bị khóa')?'lock':'err');e.style.display='block'}
-    setLoginProgress(message.includes('đã bị khóa')?'Tài khoản bị khóa — cần ADMIN mở lại.':'Phiên đã kết thúc — vui lòng đăng nhập lại.','err',false);
-    alertMsg(message,5000);
-  }
-  async function validateCurrentSession(reason='background'){
-    if(authBusy)return !!window.currentTeacher;
-    const t=window.currentTeacher || getStoredSession();
-    if(!t?.token)return false;
-    if(isLocalSessionExpired(t)){
-      await forceLogout('🔒 Phiên giáo viên đã hết hiệu lực (24 giờ hoặc đã sang ngày mới). Vui lòng đăng nhập lại.');
-      return false;
-    }
-    authBusy=true;
-    setAuthStatus('⏳ Đang kiểm tra quyền…','warn');
-    try{
-      const d=await apiPost({action:'validate',token:t.token});
-      const r=unwrapAuthResponse(d);
-      if(!r.ok || !r.data?.ok){
-        await forceLogout(r.data?.code==='ACCOUNT_LOCKED' || r.message?.includes('ACCOUNT_LOCKED') ? '🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).' : (r.message || '🔒 Tài khoản không còn được phép sử dụng. Vui lòng đăng nhập lại.'));
-        return false;
-      }
-      const teacher=r.data.teacher||r.data.data?.teacher||t;
-      const expiresAt=Number(r.data.expiresAt||t.expiresAt||0);
-      const dayKey=String(r.data.dayKey||t.loginDayKey||'');
-      const next={...t,...teacher,expiresAt:expiresAt||t.expiresAt,loginDayKey:dayKey||t.loginDayKey,lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
-      localStorage.setItem(KEY,JSON.stringify(next));
-      window.currentTeacher=next;
-      show(next);
-      if(reason==='start')setAuthStatus('✅ Đã xác thực tài khoản','ok');
-      else setAuthStatus('✅ Quyền hợp lệ • '+new Date().toLocaleTimeString('vi-VN',{hour:'2-digit',minute:'2-digit'}),'ok');
-      return true;
-    }catch(err){
-      if(isLocalSessionExpired(t)){
-        await forceLogout('🔒 Phiên giáo viên đã hết hạn. Vui lòng đăng nhập lại.');
-        return false;
-      }
-      window.currentTeacher=t;
-      setAuthStatus('⚠ Chưa kiểm tra được máy chủ','warn');
-      if(reason==='start'){
-        alertMsg('Không thể xác thực tài khoản lúc này. Hãy kiểm tra Internet rồi thử lại.',5000);
-        return false;
-      }
-      return true;
-    }finally{authBusy=false}
-  }
-  function scheduleAuthChecks(){
+  function startAuthMonitor(){
     if(authTimer)clearInterval(authTimer);
     authTimer=setInterval(async()=>{
-      const t=getStoredSession();
-      if(!t)return;
-      if(isLocalSessionExpired(t)){
-        await forceLogout('🔒 Phiên giáo viên đã hết hiệu lực (24 giờ hoặc đã sang ngày mới). Vui lòng đăng nhập lại.');
-        return;
-      }
-      await validateCurrentSession('timer');
+      if(!window.currentTeacher)return;
+      const r=await validateTeacherSession_(true);
+      if(!r.ok && r.code!=='NETWORK') show(null);
     },AUTH_CHECK_INTERVAL_MS);
+    document.addEventListener('visibilitychange',async()=>{
+      if(document.visibilityState!=='visible' || !window.currentTeacher)return;
+      const r=await validateTeacherSession_(false);
+      if(!r.ok && r.code!=='NETWORK') show(null);
+    });
   }
-
   async function doLogin(){
-    const u=id('loginUser').value.trim(),p=id('loginPass').value;
-    showLoginError('');
-    if(!u||!p){showLoginError('Vui lòng nhập đầy đủ tài khoản và mật khẩu.');setLoginProgress('Chưa thể xác thực — thiếu thông tin.','err',false);return}
-    if(!navigator.onLine){showLoginError('Cần Internet để xác thực tài khoản giáo viên.');setLoginProgress('Không có kết nối Internet.','err',false);return}
-    setLoginBusy(true);
+    const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError'),btn=id('loginBtn');
+    if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
+    btn.disabled=true;
+    e.className='login-error';e.textContent='🔄 Đang xác thực tài khoản...';e.style.display='block';
     try{
-      setLoginProgress('① Đang kết nối máy chủ xác thực…','info',true);
-      setAuthStatus('⏳ Đang kết nối máy chủ…','warn');
-      const d=await apiPost({action:'login',taiKhoan:u,matKhau:p,username:u,password:p});
-      const r=unwrapAuthResponse(d);
-      if(!r.ok || !r.data?.ok){
-        const locked=(r.data?.code==='ACCOUNT_LOCKED'||r.message?.includes('đã bị khóa')||r.message?.includes('ACCOUNT_LOCKED'));
-        const msg=locked?'🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).':(r.message||'Sai tài khoản hoặc mật khẩu.');
-        showLoginError(msg,'err');
-        setLoginProgress(locked?'Tài khoản bị khóa — không được phép truy cập.':'Đăng nhập thất bại — vui lòng kiểm tra lại tài khoản/mật khẩu.','err',false);
-        setAuthStatus('❌ Chưa xác thực','err');
-        return;
-      }
-
-      setLoginProgress('② Tài khoản hợp lệ. Đang tạo phiên đăng nhập…','info',true);
-      clearTeacherSession();
-      const teacher=saveTeacherSession(r.data||r);
-
-      setLoginProgress('③ Đang kiểm tra quyền tài khoản từ máy chủ…','info',true);
-      const vr=unwrapAuthResponse(await apiPost({action:'validate',token:teacher.token}));
-      if(!vr.ok || !vr.data?.ok){
-        const locked=(vr.data?.code==='ACCOUNT_LOCKED'||vr.message?.includes('đã bị khóa')||vr.message?.includes('ACCOUNT_LOCKED'));
-        clearTeacherSession();
-        const msg=locked?'🔒 Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).':(vr.message||'Tài khoản không còn được phép sử dụng.');
-        showLoginError(msg,'err');
-        setLoginProgress(msg,'err',false);
-        setAuthStatus('❌ Quyền không hợp lệ','err');
-        return;
-      }
-      const checkedTeacher=vr.data.teacher||teacher;
-      const merged={...teacher,...checkedTeacher,expiresAt:Number(vr.data.expiresAt||teacher.expiresAt),loginDayKey:String(vr.data.dayKey||teacher.loginDayKey),lastCheckedAt:Date.now(),lastCheckOkAt:Date.now()};
-      localStorage.setItem(KEY,JSON.stringify(merged));
-      window.currentTeacher=merged;
-      show(merged);
-      scheduleAuthChecks();
-      setLoginProgress('④ Đăng nhập thành công — quyền hợp lệ.','ok',false);
-      setAuthStatus('✅ Đăng nhập & xác thực thành công','ok');
-      setTimeout(()=>{const el=$('loginProgress');if(el)el.classList.add('hidden')},1200);
+      const d=await apiPost({action:'login',username:u,taiKhoan:u,matKhau:p,password:p});
+      const a=authResult_(d);
+      if(!a.ok) throw new Error(authErrorMessage_(d));
+      const teacher=a.inner?.teacher || a.outer?.teacher || a.inner || a.outer;
+      const token=a.inner?.token || a.outer?.token || '';
+      if(!token) throw new Error('Máy chủ chưa cấp phiên đăng nhập.');
+      const session={token,teacher,loginAt:Number(a.inner?.loginAt||a.outer?.loginAt||Date.now()),expiresAt:Number(a.inner?.expiresAt||a.outer?.expiresAt||0),dayKey:String(a.inner?.dayKey||a.outer?.dayKey||'')};
+      localStorage.setItem(KEY,JSON.stringify(session));
+      localStorage.removeItem('sahinh_teacher_token_v1');
+      localStorage.removeItem('sahinh_teacher_v1');
+      window.currentTeacher=teacher;
+      e.className='login-error ok';e.textContent='✅ Đăng nhập thành công';
+      show(teacher);
+      startAuthMonitor();
     }catch(x){
-      const msg=x?.message||'Không thể đăng nhập.';
-      showLoginError('⚠ '+msg,'err');
-      setLoginProgress('Không thể hoàn tất đăng nhập. Vui lòng thử lại.','err',false);
-      setAuthStatus('❌ Chưa xác thực','err');
-      clearTeacherSession();
-    }finally{setLoginBusy(false);}
+      e.className='login-error';
+      e.textContent=x.message||'Sai tài khoản hoặc mật khẩu.';
+      e.style.display='block';
+    }finally{btn.disabled=false}
   }
-
   id('loginBtn').onclick=doLogin;
   id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
   id('logoutBtn').onclick=async()=>{
-    const t=window.currentTeacher||getStoredSession();
-    try{if(t?.token)await apiPost({action:'logout',token:t.token})}catch(_){}
-    clearTeacherSession(); try{finishLocal()}catch(_){} show(null);
+    const saved=JSON.parse(localStorage.getItem(KEY)||'null');
+    try{if(saved?.token)await apiPost({action:'logout',token:saved.token})}catch(_){}
+    localStorage.removeItem(KEY);
+    window.currentTeacher=null;
+    if(authTimer)clearInterval(authTimer);
+    try{finishLocal();}catch(_){}
+    show(null);
   };
-  window.addEventListener('online',async()=>{set('net','● ONLINE');if(window.currentTeacher)await validateCurrentSession('online')});
-  window.addEventListener('offline',()=>set('net','● OFFLINE'));
-  document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&window.currentTeacher)await validateCurrentSession('visible')});
+  window.addEventListener('online',()=>set('net','● ONLINE'));window.addEventListener('offline',()=>set('net','● OFFLINE'));
   set('net',navigator.onLine?'● ONLINE':'● OFFLINE');
+  // Am thanh la file noi bo cua PWA, khong dong bo tu Drive.
   preloadLocalAudio();
-
+  // Chỉ khôi phục phiên sau khi xác thực lại với máy chủ.
   try{
-    const t=getStoredSession();
-    if(t && !isLocalSessionExpired(t)){
-      window.currentTeacher=t; show(t);
-      if(navigator.onLine){
-        const ok=await validateCurrentSession('boot');
-        if(!ok) return;
-      }else{
-        setAuthStatus('⚠ Offline • chưa xác minh máy chủ','warn');
-      }
-      scheduleAuthChecks();
-    }else{
-      if(t)clearTeacherSession();
-      show(null);
-    }
-  }catch(_){clearTeacherSession();show(null)}
-
-  $('startBtn').onclick=async()=>{if(await validateCurrentSession('start'))await startExam()};
-  $('retryBtn').addEventListener('click',async e=>{e.preventDefault();e.stopPropagation();if(await validateCurrentSession('start'))await retryExam()});
+    const saved=JSON.parse(localStorage.getItem(KEY)||'null');
+    if(saved?.token){
+      const r=await validateTeacherSession_(false);
+      if(r.ok){window.currentTeacher=r.teacher;show(r.teacher);startAuthMonitor();}
+      else show(null);
+    }else show(null);
+  }catch(_){show(null)}
+  $('startBtn').onclick=startExam;
+  $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
   $('saveB11DistanceBtn')?.addEventListener('click',e=>{
-    e.preventDefault();e.stopPropagation();
+    e.preventDefault();
+    e.stopPropagation();
     try{
-      const input=$('b11DistanceInput'); const value=saveLocalB11Distance(input?.value);
-      if(input)input.value=String(value);
+      const input=$('b11DistanceInput');
+      const value=saveLocalB11Distance(input?.value);
+      if(input) input.value=String(value);
       const msg=`✅ B11 — ĐÃ THAY ĐỔI THÀNH CÔNG: ${value} m · XE ${getLocalVehicleId()}`;
-      set('b11DistanceStatus',msg);set('status',msg);alertMsg(msg,3000);
-    }catch(err){const msg='❌ B11 — '+(err.message||err);set('b11DistanceStatus',msg);alertMsg(msg,3000)}
+      set('b11DistanceStatus',msg);
+      set('status',msg);
+      alertMsg(msg,3000);
+    }catch(err){
+      const msg='❌ B11 — '+(err.message||err);
+      set('b11DistanceStatus',msg);
+      alertMsg(msg,3000);
+    }
   });
   renderB11DistanceTool();
-  $('confirmPositionBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();capturePositionReference()});
+  $('confirmPositionBtn').addEventListener('click',e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    capturePositionReference();
+  });
   try{adapter=new AprilTagAdapter();await adapter.init();set('status','SẴN SÀNG — AprilTag 36h11')}catch(e){console.error(e);set('status','LỖI APRILTAG');alertMsg(e.message,7000)}
   if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(console.warn);
   raf=requestAnimationFrame(loop);

@@ -1,7 +1,7 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" sizes="192x192" href="./icon-192.png"><link rel="apple-touch-icon" href="./apple-touch-icon.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI • Thầy Tân Dạy Lái Xe</title>
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" href="./icon-192.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
-<div id="loginOverlay"><div class="login-card"><img class="login-logo" src="./logo.png" alt="Thầy Tân Dạy Lái Xe" loading="eager"><h1>SA HÌNH AI</h1><div id="bootSync" class="boot-sync ready"><span class="sync-dot"></span><span id="bootSyncText">Âm thanh chạy trực tiếp trên PWA</span></div><p>Đăng nhập giáo viên</p><label>Tài khoản</label><input id="loginUser" autocomplete="username" autocapitalize="none" spellcheck="false"><label>Mật khẩu</label><input id="loginPass" type="password" autocomplete="current-password"><button class="login-btn" id="loginBtn" type="button">ĐĂNG NHẬP</button><div id="loginProgress" class="login-progress" aria-live="polite"><span class="progress-spinner hidden" id="loginSpinner"></span><span id="loginProgressText">Sẵn sàng xác thực tài khoản</span></div><div class="login-security">🔐 Tài khoản giáo viên chỉ có hiệu lực tối đa 24 giờ và tự hết hiệu lực khi sang ngày mới. Máy chủ kiểm tra lại trạng thái tài khoản định kỳ. Nếu tài khoản bị khóa, hệ thống sẽ yêu cầu đăng nhập lại.</div><div class="login-contact">☎ ADMIN hỗ trợ: <b>0914.531.591</b></div><div id="loginError" class="login-error"></div></div></div>
-<header><div class="app-brand"><img src="./logo-mark.png" alt="" aria-hidden="true"><b>SA HÌNH AI</b></div><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.6</span></header>
+<div id="loginOverlay"><div class="login-card"><img class="login-logo" src="./logo.png" alt="Thầy Tân Dạy Lái Xe"><h1>SA HÌNH AI</h1><div id="bootSync" class="boot-sync ready"><span class="sync-dot"></span><span id="bootSyncText">Âm thanh chạy trực tiếp trên PWA</span></div><p>Đăng nhập giáo viên</p><label>Tài khoản</label><input id="loginUser" autocomplete="username"><label>Mật khẩu</label><input id="loginPass" type="password" autocomplete="current-password"><button class="login-btn" id="loginBtn">ĐĂNG NHẬP</button><div id="loginError" class="login-error"></div></div></div>
+<header><div class="brand-head"><img src="./logo-mark.png" alt="Logo" class="header-logo"><b>SA HÌNH AI</b></div><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.1</span></header>
 <nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
   <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
   <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
@@ -9,12 +9,12 @@
 <section id="teacherTabPanel" class="tab-panel teacher-panel hidden">
   <div id="userBox">
     <div class="teacher-main">
-      <strong id="teacherName">Giáo viên</strong><span id="teacherRoleBadge" class="role-badge">GIAOVIEN</span>
+      <strong id="teacherName">Giáo viên</strong>
       <span id="teacherCode"></span>
     </div>
     <div class="teacher-meta">
       <span id="vehicleProfileBadge">XE CỤC BỘ: --</span>
-      <span id="authStatus" class="auth-status">Chưa kiểm tra quyền</span><button class="logout-btn" id="logoutBtn" type="button">Đăng xuất</button>
+      <button class="logout-btn" id="logoutBtn" type="button">Đăng xuất</button>
     </div>
   </div>
   <section class="teacher-tool-card" id="b11ToolCard" aria-label="Thiết lập khoảng cách Bài 11">
