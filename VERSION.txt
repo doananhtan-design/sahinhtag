@@ -1,2 +1,3 @@
-V1.4.15
-B14/KT: TAG 14 -> baobai.mp3; TAG 141 -> batdau.mp3; sau 3s -> hoanthanh.mp3 2 lan lien tiep. Fix B08/B12 TAG 82/123 bien area khong ton tai. Giữ B11 local speed và full audio.
+V2.1.0
+Built from V1.4.15-STABLE.
+Key fixes: isolated priority DUNGXE audio for B08/B12, independent 120s warning timers for B04/B06, independent 3s KT timer, nearest-tag hold, auto reset after KT completion, retained B11 local speed and full audio.
