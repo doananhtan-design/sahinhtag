@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.1';
+const DEPLOY_VERSION='V2.1.1-B08-B12-DUAL-STABLE';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -685,6 +685,8 @@ class CourseRule{
   this.repeatStartDeadlineAt=0;
   this.repeatStartDone=false;
   this.repeatStartLastSeenAt=0;
+  this.repeat120Active=false;
+  this.checkAudioRetryAt=0;
   this.ktBatdauAt=0;
   this.ktFinishAt=0;
   this.ktFinishStarted=false;
@@ -926,8 +928,10 @@ class CourseRule{
      this.repeatStartDeadlineAt=t+120000;
      this.repeatStartDone=false;
      this.repeatStartLastSeenAt=t;
+     this.repeat120Active=true;
      this.checkAudioPlayed=false;
      this.checkAudioPending=false;
+     this.checkAudioRetryAt=0;
 
      set('status',`${this.key.toUpperCase()} — VÀO BÀI — 120s — CHỜ TAG ${this.d.start} LẦN 2`);
      event('REPEAT_120S_NO_POSITION_START',{
@@ -945,7 +949,8 @@ class CourseRule{
      // TAG kiểm tra (82/123) chỉ phát DỪNG XE một lần, tuyệt đối không so sánh diện tích.
      // Chỉ chốt cờ khi phát audio thành công; nếu lần đầu lỗi/tạm thời chưa phát được,
      // các frame tiếp theo còn thấy đúng TAG sẽ tự thử lại.
-     if(exactCheckTag&&visible&&!this.checkAudioPlayed&&!this.checkAudioPending){
+     if(exactCheckTag&&visible&&!this.checkAudioPlayed&&!this.checkAudioPending&&
+        t>=Number(this.checkAudioRetryAt||0)){
        this.checkAudioPending=true;
        this.cachedArea=Number(this.cachedArea||0);
        event('CHECK_TAG_DETECTED',{course:this.key,checkTag:tag,audio:'dungxe.mp3',audioPath:`./audio/${this.key}/dungxe.mp3`});
@@ -965,17 +970,20 @@ class CourseRule{
              playOk:true
            });
          }else{
+           this.checkAudioRetryAt=t+500;
            event('REPEAT_CHECK_TAG_STOP_AUDIO_RETRY',{
              course:this.key,
              checkTag:tag,
              audio:'dungxe.mp3',
              audioPath:`./audio/${this.key}/dungxe.mp3`,
-             playOk:false
+             playOk:false,
+             retryAfterMs:500
            });
          }
        }).catch(err=>{
          this.checkAudioPending=false;
-         reportAudioError(`./audio/${this.key}/dungxe.mp3`,err,'B08/B12 TAG kiểm tra — sẽ tự thử lại khi TAG vẫn còn');
+         this.checkAudioRetryAt=t+500;
+         reportAudioError(`./audio/${this.key}/dungxe.mp3`,err,'B08/B12 TAG kiểm tra — sẽ tự thử lại sau 500ms khi TAG vẫn còn');
        });
        set('status',`${this.key.toUpperCase()} — TAG ${tag} — PHÁT dungxe.mp3...`);
        return 'CHECK_STOP_AUDIO';
@@ -989,6 +997,7 @@ class CourseRule{
        this.repeatStartTagCount=2;
        this.repeatStartDone=true;
        this.repeatStartDeadlineAt=0;
+       this.repeat120Active=false;
        event('REPEAT_SECOND_START_TAG',{
          course:this.key,
          startTag:tag,
@@ -1317,7 +1326,36 @@ class ExamEngine{
      this.total18NextReminderAt=t+5000;
      set('status','⛔ QUÁ TỔNG THỜI GIAN — CHỜ TAG 141');
    }
-   if(this.current&&this.current.startedAt){
+   // B08/B12: MỘT luồng timer 120s chung, độc lập với camera/detector.
+   // Không phụ thuộc startedAt và không bị tắt bởi việc hụt 1-2 frame.
+   if(this.current&&(this.current.key==='b08'||this.current.key==='b12')&&
+      this.current.repeat120Active&&this.current.repeatStartDeadlineAt>0&&!this.current.repeatStartDone){
+     if(this.current.repeatStartWaitingReturn && this.current.repeatStartLastSeenAt>0 &&
+        t-this.current.repeatStartLastSeenAt>=800){
+       this.current.repeatStartWaitingReturn=false;
+       event('REPEAT_START_TAG_LOST_DEBOUNCED',{
+         course:this.current.key,
+         lostMs:Math.round(t-this.current.repeatStartLastSeenAt)
+       });
+       set('status',`${this.current.key.toUpperCase()} — TAG ${this.current.d.start} ĐÃ RỜI KHUNG — CHỜ LẦN 2`);
+     }
+     const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
+     const sec=Math.ceil(remainRepeat/1000);
+     set('courseTimer',`${sec}s`);
+     showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remainRepeat,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.start} lần 2`);
+     if(remainRepeat<=0&&!this.current.is_finished){
+       this.current.audio('quatg1.mp3');
+       this.current.repeatStartDone=true;
+       this.current.repeatStartDeadlineAt=0;
+       this.current.repeat120Active=false;
+       event('POSITION_RULE_120S_TIMEOUT',{
+         course:this.current.key,
+         startTag:this.current.d.start,
+         message:'Quá 120 giây — chỉ cảnh báo, tiếp tục chờ TAG kiểm tra và TAG vào bài lần 2'
+       });
+       set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATG1 — TIẾP TỤC CHỜ TAG`);
+     }
+   }else if(this.current&&this.current.startedAt){
      if((this.current.key==='b04'||this.current.key==='b06')&&this.current.state===1){
        const remain120=Math.max(0,120000-(t-this.current.startedAt));
        const sec120=Math.ceil(remain120/1000);
@@ -1332,39 +1370,6 @@ class ExamEngine{
      }else if(this.current.key==='KT'&&this.current.state===1&&this.current.ktFinishAt>0&&t>=this.current.ktFinishAt&&!this.current.ktFinishStarted&&!this.current.ktFinalizing){
        // KT completion timer is independent of camera/tag visibility.
        this.current.kt(null,false,t);
-     }else if(this.current.key==='b08'||this.current.key==='b12'){
-       // Chỉ cho phép TAG vào bài lần 2 sau khi TAG lần 1 đã mất ổn định đủ lâu.
-       // 800ms bám theo ngưỡng mất TAG hiện dùng ở detector, tránh tắt đồng hồ ngay
-       // do một vài frame bị hụt nhận diện.
-       if(this.current.repeatStartWaitingReturn && this.current.repeatStartLastSeenAt>0 &&
-          t-this.current.repeatStartLastSeenAt>=800){
-         this.current.repeatStartWaitingReturn=false;
-         event('REPEAT_START_TAG_LOST_DEBOUNCED',{
-           course:this.current.key,
-           lostMs:Math.round(t-this.current.repeatStartLastSeenAt)
-         });
-         set('status',`${this.current.key.toUpperCase()} — TAG ${this.current.d.start} ĐÃ RỜI KHUNG — CHỜ LẦN 2`);
-       }
-
-       if(this.current.repeatStartDeadlineAt&&!this.current.repeatStartDone){
-       const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
-       const sec=Math.ceil(remainRepeat/1000);
-       set('courseTimer',`${sec}s`);
-       showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remainRepeat,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.start} lần 2`);
-       // Hết 120s chỉ cảnh báo. Không kết thúc B08/B12 vì vẫn phải cho phép
-       // xe đi tiếp tới TAG kiểm tra (82/123) và sau đó nhận TAG vào bài lần 2.
-       if(remainRepeat<=0&&!this.current.is_finished){
-         this.current.audio('quatg1.mp3');
-         this.current.repeatStartDone=true;
-         this.current.repeatStartDeadlineAt=0;
-         event('POSITION_RULE_120S_TIMEOUT',{
-           course:this.current.key,
-           startTag:this.current.d.start,
-           message:'Quá 120 giây — chỉ cảnh báo, tiếp tục chờ TAG kiểm tra và TAG vào bài lần 2'
-         });
-         set('status',`${this.current.key.toUpperCase()} — QUÁ 120s — PHÁT QUATG1 — TIẾP TỤC CHỜ TAG`);
-       }
-       }
      }else if(this.current.key==='b03' && this.current.delayAt>0){
        const remain30=Math.max(0,30000-(t-this.current.delayAt));
        const sec=Math.ceil(remain30/1000);
