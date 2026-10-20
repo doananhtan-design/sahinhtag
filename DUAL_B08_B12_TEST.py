@@ -1,4 +1,5 @@
-from dataclasses import dataclass
+"""Regression tests for shared B08/B12 repeat-TAG flow; model of app.js rules."""
+from dataclasses import dataclass, field
 
 @dataclass
 class R:
@@ -16,14 +17,15 @@ class R:
     checkAudioPending: bool = False
     checkAudioRetryAt: int = 0
     finished: bool = False
-    audio_calls: list = None
-    def __post_init__(self): self.audio_calls=[]
+    audio_calls: list = field(default_factory=list)
+    timer_displayed_immediately: bool = False
 
 def start(r,t):
     if r.state==0:
         r.state=1; r.repeat120Active=True; r.repeatStartWaitingReturn=True
         r.repeatStartAt=t; r.repeatStartDeadlineAt=t+120000; r.repeatStartDone=False
         r.repeatStartLastSeenAt=t; r.checkAudioPlayed=False; r.checkAudioPending=False
+        r.timer_displayed_immediately=True
         return 'REPEAT_START'
 
 def handle(r,tag,t):
@@ -33,15 +35,17 @@ def handle(r,tag,t):
         r.checkAudioPending=False; r.checkAudioPlayed=True
         return 'CHECK_STOP_AUDIO'
     if tag==r.start:
-        r.repeatStartLastSeenAt=t
         if r.repeatStartWaitingReturn: return 'WAITING'
         r.repeatStartDone=True; r.repeatStartDeadlineAt=0; r.repeat120Active=False; r.finished=True
         return 'FINISHED'
     return 'WAITING'
 
-def update(r,t,tag_seen=None):
+def update(r,t,detected_ids=()):
     if r.repeat120Active and r.repeatStartDeadlineAt>0 and not r.repeatStartDone:
-        if r.repeatStartWaitingReturn and t-r.repeatStartLastSeenAt>=800:
+        # Actual detector output (all IDs), not only the selected nearest ID.
+        if r.start in detected_ids:
+            r.repeatStartLastSeenAt=t
+        elif r.repeatStartWaitingReturn and r.repeatStartLastSeenAt>0 and t-r.repeatStartLastSeenAt>=800:
             r.repeatStartWaitingReturn=False
         remain=max(0,r.repeatStartDeadlineAt-t)
         if remain<=0:
@@ -53,26 +57,30 @@ def run(key,start_tag,check_tag):
     r=R(key,start_tag,check_tag)
     assert start(r,0)=='REPEAT_START'
     assert r.repeat120Active and r.repeatStartDeadlineAt==120000 and r.repeatStartWaitingReturn
-    assert update(r,100)==119900
-    assert handle(r,start_tag,100)=='WAITING'  # same tag keeps waiting; no premature finish
-    assert update(r,500)==119500
+    assert r.timer_displayed_immediately
+    assert update(r,100,[start_tag])==119900
+    # Start TAG still exists in the frame even though another TAG is selected nearest.
+    assert update(r,500,[start_tag,check_tag])==119500
     assert r.repeatStartWaitingReturn
-    assert update(r,900)==119100
+    assert handle(r,start_tag,600)=='WAITING'
+    # Once start TAG is truly absent for >=800ms, second appearance may finish.
+    assert update(r,1299,[check_tag])==118701
+    assert r.repeatStartWaitingReturn
+    assert update(r,1300,[check_tag])==118700
     assert not r.repeatStartWaitingReturn
-    assert update(r,1000)==119000
-    assert handle(r,check_tag,1000)=='CHECK_STOP_AUDIO'
+    assert handle(r,check_tag,1400)=='CHECK_STOP_AUDIO'
     assert (key,'dungxe.mp3') in r.audio_calls
-    assert handle(r,start_tag,1200)=='FINISHED'
+    assert handle(r,start_tag,1500)=='FINISHED'
     assert r.finished and not r.repeat120Active and r.repeatStartDeadlineAt==0
     return r
 
 for key, st, ck in [('b08',81,82),('b12',121,123)]:
     r=run(key,st,ck)
-    print(key, 'PASS', r.audio_calls)
+    print(key, 'PASS: timer immediate, actual TAG-loss debounce, check audio, second TAG')
 
-# timeout warning only: both courses stay active and can still receive check tag
+# Timeout is warning-only and does not finish the exercise.
 for key, st, ck in [('b08',81,82),('b12',121,123)]:
-    r=R(key,st,ck); start(r,0); assert update(r,120000)==0
+    r=R(key,st,ck); start(r,0); assert update(r,120000,[])==0
     assert not r.finished and not r.repeat120Active
     assert handle(r,ck,120500)=='CHECK_STOP_AUDIO'
     print(key, 'TIMEOUT-WARNING-ONLY PASS')

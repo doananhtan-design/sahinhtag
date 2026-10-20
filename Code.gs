@@ -23,8 +23,7 @@ const APP = {
   SHEET_AUDIO: 'AUDIO_CONFIG',
   SHEET_CONFIG: 'SYSTEM_CONFIG',
   SHEET_EXAM: 'BAI_THI_CONFIG',
-  SESSION_MINUTES: 1440,
-  SESSION_MAX_MS: 24 * 60 * 60 * 1000
+  // Phiên giáo viên chỉ hết hiệu lực khi sang ngày mới.
 };
 
 function doGet(e) {
@@ -376,19 +375,19 @@ function teacherLogin(username, password) {
   const now=Date.now(), token=Utilities.getUuid();
   const session={
     maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen,
-    loginAt:now,expiresAt:now + APP.SESSION_MAX_MS,dayKey:todayKey_()
+    loginAt:now,dayKey:todayKey_()
   };
   putSession_(token,session);
 
   return {ok:true,token,teacher:{maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen},
-    loginAt:session.loginAt,expiresAt:session.expiresAt,dayKey:session.dayKey};
+    loginAt:session.loginAt,dayKey:session.dayKey};
 }
 
 function adminAutoLogin() {
   const token=Utilities.getUuid(), now=Date.now(), dayKey=todayKey_();
   const teacher={maGV:'ADMIN',taiKhoan:'admin',hoTen:'Quản trị hệ thống',quyen:'ADMIN'};
-  putSession_(token,{...teacher,loginAt:now,expiresAt:now+APP.SESSION_MAX_MS,dayKey});
-  return {ok:true,token,teacher,loginAt:now,expiresAt:now+APP.SESSION_MAX_MS,dayKey};
+  putSession_(token,{...teacher,loginAt:now,dayKey});
+  return {ok:true,token,teacher,loginAt:now,dayKey};
 }
 
 function validateSession(token) {
@@ -396,14 +395,13 @@ function validateSession(token) {
   if (!token) return {ok:false,message:'Thiếu mã phiên đăng nhập.'};
   const s=getSession_(token);
   if (!s) return {ok:false,message:'Phiên đăng nhập đã hết hạn hoặc không tồn tại.'};
-  if (Number(s.expiresAt||0)<=Date.now()) {removeSession_(token);return {ok:false,message:'Phiên đăng nhập đã hết 24 giờ. Vui lòng đăng nhập lại.'};}
-  if (String(s.dayKey||'')!==todayKey_()) {removeSession_(token);return {ok:false,message:'Đã sang ngày mới. Vui lòng đăng nhập lại.'};}
+  if (String(s.dayKey||'')!==todayKey_()) {removeSession_(token);return {ok:false,code:'NEW_DAY',message:'Đã sang ngày mới. Vui lòng đăng nhập lại.'};}
   if (String(s.quyen||'').toUpperCase()!=='ADMIN') {
     const row=teacherRowByAccount_(s.taiKhoan);
     if (!row || row.trangThai!=='HOAT_DONG') {removeSession_(token);return {ok:false,code:'ACCOUNT_LOCKED',message:'Tài khoản đã bị khóa. Vui lòng liên hệ ADMIN (0914.531.591).'};}
   }
   return {ok:true,teacher:{maGV:String(s.maGV||''),taiKhoan:String(s.taiKhoan||''),hoTen:String(s.hoTen||''),quyen:String(s.quyen||'GIAOVIEN')},
-    loginAt:Number(s.loginAt||0),expiresAt:Number(s.expiresAt||0),dayKey:String(s.dayKey||'')};
+    loginAt:Number(s.loginAt||0),dayKey:String(s.dayKey||'')};
 }
 
 function logout(token) { removeSession_(String(token||'').trim()); return {ok:true}; }
@@ -578,7 +576,8 @@ function getSession_(token) {
   if (!raw) return null;
   try {
     const s=JSON.parse(raw);
-    if (!s || Number(s.expiresAt||0)<=Date.now()) {removeSession_(token);return null;}
+    if (!s) {removeSession_(token);return null;}
+    if (String(s.dayKey||'') !== todayKey_()) {removeSession_(token);return null;}
     return s;
   } catch(e) { removeSession_(token); return null; }
 }

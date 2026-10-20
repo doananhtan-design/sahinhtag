@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.1-B08-B12-DUAL-STABLE';
+const DEPLOY_VERSION='V2.1.3-DAILY-LOGIN-MINIMAL';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -934,6 +934,8 @@ class CourseRule{
      this.checkAudioRetryAt=0;
 
      set('status',`${this.key.toUpperCase()} — VÀO BÀI — 120s — CHỜ TAG ${this.d.start} LẦN 2`);
+     set('courseTimer','120s');
+     showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',120000,`${this.key.toUpperCase()} — bắt đầu ngay khi nhận TAG ${this.d.start} lần 1`);
      event('REPEAT_120S_NO_POSITION_START',{
        course:this.key,
        startTag:tag,
@@ -1289,7 +1291,7 @@ class ExamEngine{
      }
    }
  }
- update(t){
+ update(t,detectedTagIds=[]){
    if(this.result!=='RUNNING')return;
    if(this.emergencyPendingAt&&t>=this.emergencyPendingAt&&!this.emergencyTriggered){
      this.emergencyPendingAt=0;this.emergencyTriggered=true;this.tagLockUntil=t+10000;
@@ -1330,14 +1332,22 @@ class ExamEngine{
    // Không phụ thuộc startedAt và không bị tắt bởi việc hụt 1-2 frame.
    if(this.current&&(this.current.key==='b08'||this.current.key==='b12')&&
       this.current.repeat120Active&&this.current.repeatStartDeadlineAt>0&&!this.current.repeatStartDone){
-     if(this.current.repeatStartWaitingReturn && this.current.repeatStartLastSeenAt>0 &&
+     // Dùng toàn bộ TAG detector nhìn thấy trong frame, không chỉ TAG gần nhất.
+     // Nếu TAG vào bài vẫn còn trong khung nhưng TAG kiểm tra gần hơn, không được mở khóa lần 2.
+     const startTagStillVisible=Array.isArray(detectedTagIds) &&
+       detectedTagIds.some(id=>Number(id)===Number(this.current.d.start));
+     if(startTagStillVisible){
+       this.current.repeatStartLastSeenAt=t;
+     }else if(this.current.repeatStartWaitingReturn && this.current.repeatStartLastSeenAt>0 &&
         t-this.current.repeatStartLastSeenAt>=800){
        this.current.repeatStartWaitingReturn=false;
        event('REPEAT_START_TAG_LOST_DEBOUNCED',{
          course:this.current.key,
-         lostMs:Math.round(t-this.current.repeatStartLastSeenAt)
+         startTag:this.current.d.start,
+         lostMs:Math.round(t-this.current.repeatStartLastSeenAt),
+         allDetectedTagsChecked:true
        });
-       set('status',`${this.current.key.toUpperCase()} — TAG ${this.current.d.start} ĐÃ RỜI KHUNG — CHỜ LẦN 2`);
+       set('status',`${this.current.key.toUpperCase()} — TAG ${this.current.d.start} ĐÃ RỜI KHUNG 800ms — CHỜ LẦN 2`);
      }
      const remainRepeat=Math.max(0,this.current.repeatStartDeadlineAt-t);
      const sec=Math.ceil(remainRepeat/1000);
@@ -1524,6 +1534,7 @@ async function retryExam(){
 window.retryExam=retryExam;
 function finishLocal(){showPositionConfirm(false);stopTotal18Ticker();if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
+  let frameTagIds=[];
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
     processing=true;
     try{
@@ -1532,6 +1543,8 @@ async function loop(t){
       if(workCanvas.height!==vh) workCanvas.height=vh;
       workCtx.drawImage(video,0,0,vw,vh);
       const detected=await adapter.detectFrame(workCanvas);
+      const detectedTagIds=Array.isArray(detected)?detected.map(d=>Number(d?.id)).filter(Number.isFinite):[];
+      frameTagIds=detectedTagIds;
       const ds=selectNearestTag(detected,t);
       drawDetections(ds);
       if(ds.length){
@@ -1543,12 +1556,23 @@ async function loop(t){
         // update() sẽ tự giải phóng sau 800ms mất TAG ổn định.
         set('status','🔎 ĐANG QUÉT APRILTAG 36h11...');
       }
+      // B08/B12: TAG dừng xe phải được xử lý ngay cả khi không phải TAG gần nhất.
+      // Chỉ gọi nhánh xử lý TAG kiểm tra của chính B08/B12; không ảnh hưởng bài khác.
+      const current=engine?.current;
+      if(current && (current.key==='b08'||current.key==='b12') && current.state===1){
+        const checkId=Number(current.d.check);
+        const checkDetection=Array.isArray(detected)?detected.find(d=>Number(d?.id)===checkId):null;
+        if(checkDetection && (!ds.length || Number(ds[0].id)!==checkId)){
+          current.process(checkId,Number(checkDetection.area)||0,true,checkDetection.center,t);
+          event('CHECK_TAG_SEEN_NON_NEAREST',{course:current.key,checkTag:checkId,nearestTag:ds[0]?.id??null});
+        }
+      }
     }catch(e){
       console.warn('AprilTag detect error',e);
       set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
     }finally{processing=false}
   }
-  if(engine) engine.update(t);
+  if(engine) engine.update(t,frameTagIds);
   raf=requestAnimationFrame(loop);
 }
 
@@ -1558,23 +1582,47 @@ document.addEventListener('DOMContentLoaded',async()=>{
   const KEY='sahinh_teacher_session_v1';
   const id=x=>document.getElementById(x);
   function show(t){id('loginOverlay').style.display=t?'none':'flex';const tabs=id('appTabs');if(tabs)tabs.classList.toggle('hidden',!t);switchAppTab('exam');if(t){id('startBtn').style.display='block';id('teacherName').textContent='Xin chào, '+(t.hoTen||t.name||'Giáo viên');id('teacherCode').textContent=' • '+(t.maGV||t.code||'');}else{id('startBtn').style.display='none';}}
+  let sessionExpiryTimer=0;
+  function clearTeacherSession(message){
+    if(sessionExpiryTimer){clearInterval(sessionExpiryTimer);sessionExpiryTimer=0;}
+    localStorage.removeItem(KEY);window.currentTeacher=null;finishLocal();show(null);
+    if(message){const e=id('loginError');e.textContent=message;e.style.display='block';}
+  }
+  function startDailySessionCheck(){
+    if(sessionExpiryTimer)clearInterval(sessionExpiryTimer);
+    const check=async()=>{
+      const t=window.currentTeacher;
+      if(!t||!navigator.onLine)return;
+      try{const r=await apiPost({action:'validate',token:t.token});const d=r.data||r;
+        if(!(r.success===true||r.ok===true)||d.ok===false)clearTeacherSession(d.message||r.message||'Đã sang ngày mới. Vui lòng đăng nhập lại.');
+      }catch(err){/* Giữ phiên khi mạng chập chờn; máy chủ sẽ kiểm tra ngày khi kết nối lại. */}
+    };
+    check();sessionExpiryTimer=setInterval(check,60000);
+  }
   async function doLogin(){
     const u=id('loginUser').value.trim(),p=id('loginPass').value,e=id('loginError');
     if(!u||!p){e.textContent='Nhập tài khoản và mật khẩu.';e.style.display='block';return}
     try{
-      const d=await apiPost({action:'login',taiKhoan:u,matKhau:p});
-      if(!d.success)throw Error(d.message||'Đăng nhập thất bại');
-      const teacher=d.teacher||d.data||d;teacher.loginAt=Date.now();localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';
+      const response=await apiPost({action:'login',taiKhoan:u,matKhau:p});
+      const d=response.data||response;
+      if(!(response.success===true||response.ok===true)||d.ok===false||!d.token)throw Error(d.message||response.message||'Đăng nhập thất bại.');
+      const teacher={...(d.teacher||{}),token:d.token,loginAt:Number(d.loginAt||Date.now()),dayKey:d.dayKey||new Date().toLocaleDateString('en-CA')};
+      localStorage.setItem(KEY,JSON.stringify(teacher));window.currentTeacher=teacher;show(teacher);e.style.display='none';id('loginPass').value='';startDailySessionCheck();
     }catch(x){e.textContent=x.message||'Đăng nhập thất bại';e.style.display='block'}
   }
-  id('loginBtn').onclick=doLogin;id('loginPass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
-  id('logoutBtn').onclick=()=>{localStorage.removeItem(KEY);window.currentTeacher=null;finishLocal();show(null)};
-  window.addEventListener('online',()=>set('net','● ONLINE'));window.addEventListener('offline',()=>set('net','● OFFLINE'));
+  id('teacherLoginForm').onsubmit=e=>{e.preventDefault();doLogin()};
+  id('logoutBtn').onclick=async()=>{const t=window.currentTeacher;try{if(t?.token)await apiPost({action:'logout',token:t.token});}catch(_){}clearTeacherSession();};
+  window.addEventListener('online',()=>{set('net','● ONLINE');startDailySessionCheck()});window.addEventListener('offline',()=>set('net','● OFFLINE'));
   set('net',navigator.onLine?'● ONLINE':'● OFFLINE');
   // Am thanh la file noi bo cua PWA, khong dong bo tu Drive.
   preloadLocalAudio();
-  // Chi goi Google Apps Script khi giao vien dang nhap.
-  try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(t){window.currentTeacher=t;show(t)}else show(null)}catch(_){show(null)}
+  // Khi mở PWA: chỉ khôi phục phiên nếu máy chủ xác nhận vẫn trong cùng ngày.
+  (async()=>{try{const t=JSON.parse(localStorage.getItem(KEY)||'null');if(!t||!t.token){clearTeacherSession();return;}
+    if(!navigator.onLine){clearTeacherSession('Cần kết nối mạng để xác minh đăng nhập trong ngày.');return;}
+    const response=await apiPost({action:'validate',token:t.token}),d=response.data||response;
+    if(!(response.success===true||response.ok===true)||d.ok===false||!d.teacher){clearTeacherSession(d.message||response.message||'Đã sang ngày mới. Vui lòng đăng nhập lại.');return;}
+    window.currentTeacher={...d.teacher,token:t.token,loginAt:Number(d.loginAt||t.loginAt),dayKey:d.dayKey||t.dayKey};localStorage.setItem(KEY,JSON.stringify(window.currentTeacher));show(window.currentTeacher);startDailySessionCheck();
+  }catch(_){clearTeacherSession('Không xác minh được đăng nhập. Vui lòng kiểm tra kết nối mạng.');}})();
   $('startBtn').onclick=startExam;
   $('retryBtn').addEventListener('click',e=>{e.preventDefault();e.stopPropagation();retryExam();});
   $('saveB11DistanceBtn')?.addEventListener('click',e=>{
