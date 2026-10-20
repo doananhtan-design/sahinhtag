@@ -329,6 +329,13 @@ function removeSession_(token) {
   if (token) PropertiesService.getScriptProperties().deleteProperty('SESSION_' + token);
 }
 
+function activeSessionKey_(username) {
+  const normalized = String(username || '').trim().toLowerCase();
+  const digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, normalized, Utilities.Charset.UTF_8);
+  const hex = digest.map(b => { const x = b < 0 ? b + 256 : b; return ('0' + x.toString(16)).slice(-2); }).join('');
+  return 'ACTIVE_TEACHER_SESSION_' + hex;
+}
+
 function teacherLogin(username, password) {
   ensureSystem_();
   username = String(username || '').trim();
@@ -372,15 +379,25 @@ function teacherLogin(username, password) {
 
   if (!passwordOk) return {ok:false, code:'PASSWORD_INVALID', message:'Sai mật khẩu. Vui lòng kiểm tra lại mật khẩu.'};
 
-  const now=Date.now(), token=Utilities.getUuid();
-  const session={
-    maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen,
-    loginAt:now,dayKey:todayKey_()
-  };
-  putSession_(token,session);
-
-  return {ok:true,token,teacher:{maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen},
-    loginAt:session.loginAt,dayKey:session.dayKey};
+  // Mỗi tài khoản chỉ có một token hoạt động. Đăng nhập trên điện thoại khác
+  // sẽ thu hồi token trước đó; khóa để tránh hai lần đăng nhập đồng thời cùng thắng.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const activeKey = activeSessionKey_(row.taiKhoan);
+    const previousToken = props.getProperty(activeKey);
+    if (previousToken) removeSession_(previousToken);
+    const now=Date.now(), token=Utilities.getUuid();
+    const session={
+      maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen,
+      loginAt:now,dayKey:todayKey_()
+    };
+    putSession_(token,session);
+    props.setProperty(activeKey,token);
+    return {ok:true,token,teacher:{maGV:row.maGV,taiKhoan:row.taiKhoan,hoTen:row.hoTen,quyen:row.quyen},
+      loginAt:session.loginAt,dayKey:session.dayKey};
+  } finally { lock.releaseLock(); }
 }
 
 function adminAutoLogin() {
@@ -395,6 +412,10 @@ function validateSession(token) {
   if (!token) return {ok:false,message:'Thiếu mã phiên đăng nhập.'};
   const s=getSession_(token);
   if (!s) return {ok:false,message:'Phiên đăng nhập đã hết hạn hoặc không tồn tại.'};
+  if (String(s.quyen||'').toUpperCase() !== 'ADMIN') {
+    const activeToken = PropertiesService.getScriptProperties().getProperty(activeSessionKey_(s.taiKhoan));
+    if (activeToken !== token) { removeSession_(token); return {ok:false,code:'SESSION_REPLACED',message:'Tài khoản này đã đăng nhập trên thiết bị khác. Phiên trên thiết bị này đã bị đăng xuất.'}; }
+  }
   if (String(s.dayKey||'')!==todayKey_()) {removeSession_(token);return {ok:false,code:'NEW_DAY',message:'Đã sang ngày mới. Vui lòng đăng nhập lại.'};}
   if (String(s.quyen||'').toUpperCase()!=='ADMIN') {
     const row=teacherRowByAccount_(s.taiKhoan);
@@ -404,7 +425,16 @@ function validateSession(token) {
     loginAt:Number(s.loginAt||0),dayKey:String(s.dayKey||'')};
 }
 
-function logout(token) { removeSession_(String(token||'').trim()); return {ok:true}; }
+function logout(token) {
+  token=String(token||'').trim();
+  const s=getSession_(token);
+  if (s && String(s.quyen||'').toUpperCase() !== 'ADMIN') {
+    const props=PropertiesService.getScriptProperties(), key=activeSessionKey_(s.taiKhoan);
+    if (props.getProperty(key) === token) props.deleteProperty(key);
+  }
+  removeSession_(token);
+  return {ok:true};
+}
 
 /* =========================
    ADMIN: TẠO / SỬA GIÁO VIÊN
