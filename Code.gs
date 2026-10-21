@@ -661,18 +661,18 @@ function examHeaders_(sh){
 }
 function examCol_(headers,names){for(var i=0;i<headers.length;i++)if(names.indexOf(headers[i])>=0)return i;return -1;}
 function examFindStudent_(sbd){
-  var sh=examEnsureSheets_().roster, h=examHeaders_(sh), cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']), cN=examCol_(h,['HOTEN','TENHOCVIEN','HO&TEN','TEN']), cC=examCol_(h,['CCCD','SOCANCUOC','CMND']), cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI','THI']);
+  var sh=examEnsureSheets_().roster, h=examHeaders_(sh), cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']), cN=examCol_(h,['HOTEN','HOVATEN','TENHOCVIEN','HO&TEN','TEN']), cC=examCol_(h,['CCCD','SOCANCUOC','CMND']), cDOB=examCol_(h,['NGAYSINH','NGAYTHANGNAMSINH','DOB','DATEOFBIRTH']), cCourse=examCol_(h,['KHOAHOC','KHOA','COURSE']), cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI','THI']);
   if(cS<0)return {error:'Thiếu cột SBD (hoặc CCCD) trong sheet DANH_SACH_HOC_VIEN.'};
   if(sh.getLastRow()<2)return {error:'Sheet DANH_SACH_HOC_VIEN chưa có dữ liệu học viên.'};
   var rows=sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getDisplayValues(), key=String(sbd||'').trim().toUpperCase();
-  for(var i=0;i<rows.length;i++)if(String(rows[i][cS]||'').trim().toUpperCase()===key){return {sh:sh,row:i+2,sbd:String(rows[i][cS]||''),hoTen:cN>=0?String(rows[i][cN]||''):'',cccd:cC>=0?String(rows[i][cC]||''):'',status:cT>=0?String(rows[i][cT]||'CHUA THI').trim().toUpperCase():'CHUA THI',statusCol:cT,headers:h};}
+  for(var i=0;i<rows.length;i++)if(String(rows[i][cS]||'').trim().toUpperCase()===key){return {sh:sh,row:i+2,sbd:String(rows[i][cS]||''),hoTen:cN>=0?String(rows[i][cN]||''):'',cccd:cC>=0?String(rows[i][cC]||''):'',ngaySinh:cDOB>=0?String(rows[i][cDOB]||''):'',khoaHoc:cCourse>=0?String(rows[i][cCourse]||''):'',status:cT>=0?String(rows[i][cT]||'CHUA THI').trim().toUpperCase():'CHUA THI',statusCol:cT,headers:h};}
   return null;
 }
 function examLookupStudent_(token,sbd){
   if(!examSession_(token))return {ok:false,message:'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'};
   var st=examFindStudent_(sbd); if(!st)return {ok:false,message:'Không tìm thấy học viên theo số báo danh.'}; if(st.error)return {ok:false,message:st.error};
-  if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:st.status.indexOf('DANG')===0?'EXAM_IN_PROGRESS':'ALREADY_TAKEN',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN nếu lượt thi bị gián đoạn.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.',student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,status:st.status}};
-  return {ok:true,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,status:st.status||'CHUA THI'}};
+  if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:st.status.indexOf('DANG')===0?'EXAM_IN_PROGRESS':'ALREADY_TAKEN',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN nếu lượt thi bị gián đoạn.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.',student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,ngaySinh:st.ngaySinh,khoaHoc:st.khoaHoc,status:st.status}};
+  return {ok:true,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,ngaySinh:st.ngaySinh,khoaHoc:st.khoaHoc,status:st.status||'CHUA THI'}};
 }
 function examBegin_(token,sbd){
   var sess=examSession_(token); if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
