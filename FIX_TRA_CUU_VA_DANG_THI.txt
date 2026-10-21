@@ -1,0 +1,24 @@
+SA HINH AI V2.1.5 - PATCH TRA CUU HOC VIEN VA TRANG THAI DANG THI
+
+Nguyen nhan da xac dinh trong code:
+1. Header tieng Viet co dau (Họ và Tên, Ngày sinh, Khóa học, Trạng thái) khong duoc chuan hoa nen Apps Script khong tim thay cot.
+2. Cot "Trạng thái" trong sheet nguon la quyen duoc thi (vi du "Cho phép thi"), khong phai trang thai luot thi. Code cu co the doc nham cot nay lam trang thai thi.
+3. Trang thai luot thi phai nam o cot rieng TRANG_THAI_THI; neu hoc vien mac ket DANG THI do mat ket noi/loi luot thi, ADMIN can mo khoa sau khi xac minh.
+
+Da sua:
+- Chuan hoa header tieng Viet co dau truoc khi doi chieu.
+- Dung cot SBD, CCCD, Ho va Ten, Ngay sinh, Khoa hoc va cot quyen thi theo sheet thuc te.
+- Tao/dung cot rieng TRANG_THAI_THI; khong ghi de cot "Trạng thái" = "Cho phép thi".
+- Tra cuu van hien thi day du ho ten, khoa hoc, ngay sinh, CCCD ngay ca khi hoc vien dang thi/da thi/khong duoc phep thi.
+- Chuan hoa gia tri DANG THI / ĐANG THI va DA THI / ĐÃ THI de tranh nhan dien sai.
+- Giao dien hien thong tin hoc vien khi backend tra ve loi trang thai.
+
+CAP NHAT:
+1. Sao luu Google Sheet va code hien tai.
+2. Thay Code.gs bang Code.gs trong goi nay, giu nguyen cac ham dang nhap hien co.
+3. Deploy Apps Script -> Manage deployments -> Edit -> New version -> Deploy.
+4. Cap nhat app.js len GitHub Pages; tang cache name trong sw.js neu PWA van giu cache cu, sau do dong/mo lai app hoac xoa cache trang web.
+5. Thu SBD 13. Phai hien HỒ CÚN KHIN, K26B008, 10/10/1998, CCCD doc tu cot B.
+6. Neu van hien DANG THI: dang nhap ADMIN, nhap SBD 13 vao phan mo khoa, xac nhan mo khoa sau khi chac chan khong con bai thi dang chay. Khong sua tay cot quyen thi "Cho phép thi".
+
+Chua the xac minh truc tiep du lieu trong Apps Script/Google Sheet production; can deploy va test tren he thong that.

@@ -638,7 +638,7 @@ function sha256_(text) {
 
 
 /* ===== THI SA HÌNH: khóa lượt thi phía máy chủ =====
- * Sheet DANH_SACH_HOC_VIEN: SBD | HO_TEN | CCCD | TRANG_THAI_THI | CAP_NHAT_LUC | CAP_NHAT_BOI
+ * Sheet DANH_SACH_HOC_VIEN: SBD | CCCD | Họ và Tên | Ngày sinh | Hạng Thi | Khóa học | Kỳ kiểm tra ngày | Trạng thái (cho phép thi) | TRANG_THAI_THI (trạng thái lượt thi)
  * Sheet KET_QUA_THI_SA_HINH: MA_LUOT_THI | SBD | HO_TEN | CCCD | GIAO_VIEN | BAT_DAU | KET_THUC | KET_QUA | CHI_TIET_JSON
  */
 function examEnsureSheets_(){
@@ -646,6 +646,8 @@ function examEnsureSheets_(){
   var roster=ss.getSheetByName('DANH_SACH_HOC_VIEN');
   if(!roster) roster=ss.insertSheet('DANH_SACH_HOC_VIEN');
   if(roster.getLastRow()===0) roster.appendRow(['SBD','HO_TEN','CCCD','TRANG_THAI_THI','CAP_NHAT_LUC','CAP_NHAT_BOI']);
+  var head=roster.getLastRow()>0?roster.getRange(1,1,1,roster.getLastColumn()).getDisplayValues()[0].map(examNormalizeHeader_):[];
+  if(head.indexOf('TRANGTHAITHI')<0){roster.getRange(1,roster.getLastColumn()+1).setValue('TRANG_THAI_THI');}
   var results=ss.getSheetByName('KET_QUA_THI_SA_HINH');
   if(!results) results=ss.insertSheet('KET_QUA_THI_SA_HINH');
   if(results.getLastRow()===0) results.appendRow(['MA_LUOT_THI','SBD','HO_TEN','CCCD','GIAO_VIEN','BAT_DAU','KET_THUC','KET_QUA','CHI_TIET_JSON']);
@@ -656,30 +658,36 @@ function examSession_(token){
   var v=validateSession(t); if(!v||!v.ok)return null;
   var s=getSession_(t); return s||null;
 }
-function examHeaders_(sh){
-  var n=Math.max(1,sh.getLastColumn()); return sh.getRange(1,1,1,n).getDisplayValues()[0].map(function(x){return String(x||'').trim().toUpperCase().replace(/[\s_-]+/g,'');});
+function examNormalizeHeader_(value){
+  return String(value||'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/Đ/g,'D').replace(/[^A-Z0-9]/g,'');
 }
-function examCol_(headers,names){for(var i=0;i<headers.length;i++)if(names.indexOf(headers[i])>=0)return i;return -1;}
+function examHeaders_(sh){
+  var n=Math.max(1,sh.getLastColumn()); return sh.getRange(1,1,1,n).getDisplayValues()[0].map(examNormalizeHeader_);
+}
+function examCol_(headers,names){var normalized=names.map(examNormalizeHeader_);for(var i=0;i<headers.length;i++)if(normalized.indexOf(headers[i])>=0)return i;return -1;}
 function examFindStudent_(sbd){
-  var sh=examEnsureSheets_().roster, h=examHeaders_(sh), cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']), cN=examCol_(h,['HOTEN','HOVATEN','TENHOCVIEN','HO&TEN','TEN']), cC=examCol_(h,['CCCD','SOCANCUOC','CMND']), cDOB=examCol_(h,['NGAYSINH','NGAYTHANGNAMSINH','DOB','DATEOFBIRTH']), cCourse=examCol_(h,['KHOAHOC','KHOA','COURSE']), cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI','THI']);
+  var sh=examEnsureSheets_().roster, h=examHeaders_(sh), cS=examCol_(h,['SBD','Số báo danh','MAHOCVIEN']), cN=examCol_(h,['Họ và Tên','Họ tên','Tên học viên','Tên']), cC=examCol_(h,['CCCD','Số CCCD','Số căn cước','CMND']), cDOB=examCol_(h,['Ngày sinh','Ngày tháng năm sinh','DOB','DateOfBirth']), cCourse=examCol_(h,['Khóa học','Khoa','Course']), cT=examCol_(h,['TRANG_THAI_THI']);
+  var cPermission=examCol_(h,['Trạng thái','Trạng thái học viên','Quyền thi']);
   if(cS<0)return {error:'Thiếu cột SBD (hoặc CCCD) trong sheet DANH_SACH_HOC_VIEN.'};
   if(sh.getLastRow()<2)return {error:'Sheet DANH_SACH_HOC_VIEN chưa có dữ liệu học viên.'};
   var rows=sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getDisplayValues(), key=String(sbd||'').trim().toUpperCase();
-  for(var i=0;i<rows.length;i++)if(String(rows[i][cS]||'').trim().toUpperCase()===key){return {sh:sh,row:i+2,sbd:String(rows[i][cS]||''),hoTen:cN>=0?String(rows[i][cN]||''):'',cccd:cC>=0?String(rows[i][cC]||''):'',ngaySinh:cDOB>=0?String(rows[i][cDOB]||''):'',khoaHoc:cCourse>=0?String(rows[i][cCourse]||''):'',status:cT>=0?String(rows[i][cT]||'CHUA THI').trim().toUpperCase():'CHUA THI',statusCol:cT,headers:h};}
+  for(var i=0;i<rows.length;i++)if(String(rows[i][cS]||'').trim().toUpperCase()===key){return {sh:sh,row:i+2,sbd:String(rows[i][cS]||''),hoTen:cN>=0?String(rows[i][cN]||''):'',cccd:cC>=0?String(rows[i][cC]||''):'',ngaySinh:cDOB>=0?String(rows[i][cDOB]||''):'',khoaHoc:cCourse>=0?String(rows[i][cCourse]||''):'',status:cT>=0?examNormalizeHeader_(String(rows[i][cT]||'CHUA THI')):'CHUATHI',permission:cPermission>=0?String(rows[i][cPermission]||'').trim():'',statusCol:cT,headers:h};}
   return null;
 }
 function examLookupStudent_(token,sbd){
   if(!examSession_(token))return {ok:false,message:'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'};
   var st=examFindStudent_(sbd); if(!st)return {ok:false,message:'Không tìm thấy học viên theo số báo danh.'}; if(st.error)return {ok:false,message:st.error};
-  if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:st.status.indexOf('DANG')===0?'EXAM_IN_PROGRESS':'ALREADY_TAKEN',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN nếu lượt thi bị gián đoạn.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.',student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,ngaySinh:st.ngaySinh,khoaHoc:st.khoaHoc,status:st.status}};
-  return {ok:true,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,ngaySinh:st.ngaySinh,khoaHoc:st.khoaHoc,status:st.status||'CHUA THI'}};
+  var studentInfo={sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,ngaySinh:st.ngaySinh,khoaHoc:st.khoaHoc,status:st.status==='CHUATHI'?'CHUA THI':st.status,permission:st.permission};
+  if(st.permission && examNormalizeHeader_(st.permission)!=='CHOPHEPTHI' && examNormalizeHeader_(st.permission)!=='DUOCPHEPTHI')return {ok:false,code:'NOT_ALLOWED',message:'Học viên chưa được cho phép thi theo cột Trạng thái.',student:studentInfo};
+  if(st.status==='DATHI'||st.status==='DANGTHI')return {ok:false,code:st.status==='DANGTHI'?'EXAM_IN_PROGRESS':'ALREADY_TAKEN',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN nếu lượt thi bị gián đoạn.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.',student:studentInfo};
+  return {ok:true,student:studentInfo};
 }
 function examBegin_(token,sbd){
   var sess=examSession_(token); if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
   var lock=LockService.getScriptLock();lock.waitLock(10000);
   try{
     var st=examFindStudent_(sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên.'};if(st.error)return {ok:false,message:st.error};
-    if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:'STUDENT_LOCKED',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.'};
+    if(st.status==='DATHI'||st.status==='DANGTHI')return {ok:false,code:'STUDENT_LOCKED',message:st.status==='DANGTHI'?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.'};
     var headers=st.headers, cT=st.statusCol;
     if(cT<0){cT=headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
     var examId=Utilities.getUuid(), now=new Date();
@@ -716,7 +724,7 @@ function examAdminReset_(token,sbd){
 }
 function examAdminList_(token){
   var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được xem danh sách.'};
-  var sh=examEnsureSheets_().roster,h=examHeaders_(sh),cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']),cN=examCol_(h,['HOTEN','TENHOCVIEN','TEN']),cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI']);if(cS<0)return {ok:false,message:'Thiếu cột SBD.'};
+  var sh=examEnsureSheets_().roster,h=examHeaders_(sh),cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']),cN=examCol_(h,['HOTEN','HOVATEN','TENHOCVIEN','TEN']),cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI']);if(cS<0)return {ok:false,message:'Thiếu cột SBD.'};
   var data=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getDisplayValues():[];
   return {ok:true,students:data.map(function(r){return {sbd:r[cS]||'',hoTen:cN>=0?r[cN]:'',status:cT>=0?r[cT]||'CHUA THI':'CHUA THI'};}).filter(function(x){return x.sbd;})};
 }
