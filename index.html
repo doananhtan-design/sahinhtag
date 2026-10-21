@@ -1,7 +1,7 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
 <div id="loginOverlay"><form class="login-card" id="teacherLoginForm"><input id="loginUser" autocomplete="username" placeholder="Tài khoản giáo viên" aria-label="Tài khoản giáo viên" required><input id="loginPass" type="password" autocomplete="current-password" placeholder="Mật khẩu" aria-label="Mật khẩu" required><button class="login-btn" id="loginBtn" type="submit">ĐĂNG NHẬP</button><div id="loginError" class="login-error" role="alert"></div></form></div>
-<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.2-DAILY-LOGIN</span></header>
+<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.5-THI-KHOA</span></header>
 <nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
   <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
   <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
@@ -27,6 +27,17 @@
   </section>
 </section>
 <main id="examTabPanel" class="tab-panel">
+<section class="exam-mode-card" id="examModeCard">
+  <div class="exam-mode-title">CHẾ ĐỘ HOẠT ĐỘNG</div>
+  <div class="exam-mode-buttons"><button id="practiceModeBtn" type="button" class="exam-mode-btn active">LUYỆN TẬP</button><button id="officialExamModeBtn" type="button" class="exam-mode-btn">THI SA HÌNH</button></div>
+  <div id="officialExamPanel" class="hidden">
+    <label for="candidateSbd">Số báo danh học viên</label>
+    <div class="candidate-row"><input id="candidateSbd" autocomplete="off" placeholder="Nhập số báo danh"><button id="lookupCandidateBtn" type="button">TRA CỨU</button></div>
+    <div id="candidateInfo" class="candidate-info">Tra cứu học viên trước khi bắt đầu thi.</div>
+    <div id="candidateError" class="candidate-error" role="alert"></div>
+    <div id="adminUnlockPanel" class="admin-unlock hidden"><strong>ADMIN · MỞ KHÓA THI LẠI</strong><div class="candidate-row"><input id="adminResetSbd" placeholder="Số báo danh cần mở khóa"><button id="adminResetBtn" type="button">MỞ KHÓA</button></div><div id="adminResetMessage"></div></div>
+  </div>
+</section>
 <button class="start-btn" id="startBtn">▶ BẮT ĐẦU</button>
 <section class="total-clock total-clock-top" aria-label="Đồng hồ tổng thời gian toàn bài">
   <div class="total-clock-head">
@@ -48,4 +59,4 @@
     ✅ ĐÚNG VỊ TRÍ
   </button>
 </section></main><footer>SA HÌNH AI • xử lý tại điện thoại • AprilTag 36h11 • offline-first</footer>
-<script src="./gas-config.js"></script><script>window.SAHINH_API_URL=window.SAHINH_API_URL||localStorage.getItem('sahinh_api_url_v1')||'';</script><script src="./apriltag-adapter.js"></script><script src="./app.js"></script></body></html>
+<script src="./gas-config.js"></script><script src="./apriltag-adapter.js"></script><script src="./app.js"></script></body></html>

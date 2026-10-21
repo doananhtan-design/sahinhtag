@@ -635,6 +635,92 @@ function sha256_(text) {
   }).join('');
 }
 
+
+
+/* ===== THI SA HÌNH: khóa lượt thi phía máy chủ =====
+ * Sheet DANH_SACH_HOC_VIEN: SBD | HO_TEN | CCCD | TRANG_THAI_THI | CAP_NHAT_LUC | CAP_NHAT_BOI
+ * Sheet KET_QUA_THI_SA_HINH: MA_LUOT_THI | SBD | HO_TEN | CCCD | GIAO_VIEN | BAT_DAU | KET_THUC | KET_QUA | CHI_TIET_JSON
+ */
+function examEnsureSheets_(){
+  var ss=SpreadsheetApp.getActive();
+  var roster=ss.getSheetByName('DANH_SACH_HOC_VIEN');
+  if(!roster) roster=ss.insertSheet('DANH_SACH_HOC_VIEN');
+  if(roster.getLastRow()===0) roster.appendRow(['SBD','HO_TEN','CCCD','TRANG_THAI_THI','CAP_NHAT_LUC','CAP_NHAT_BOI']);
+  var results=ss.getSheetByName('KET_QUA_THI_SA_HINH');
+  if(!results) results=ss.insertSheet('KET_QUA_THI_SA_HINH');
+  if(results.getLastRow()===0) results.appendRow(['MA_LUOT_THI','SBD','HO_TEN','CCCD','GIAO_VIEN','BAT_DAU','KET_THUC','KET_QUA','CHI_TIET_JSON']);
+  return {roster:roster,results:results};
+}
+function examSession_(token){
+  var t=String(token||'').trim(); if(!t)return null;
+  var v=validateSession(t); if(!v||!v.ok)return null;
+  var s=getSession_(t); return s||null;
+}
+function examHeaders_(sh){
+  var n=Math.max(1,sh.getLastColumn()); return sh.getRange(1,1,1,n).getDisplayValues()[0].map(function(x){return String(x||'').trim().toUpperCase().replace(/[\s_-]+/g,'');});
+}
+function examCol_(headers,names){for(var i=0;i<headers.length;i++)if(names.indexOf(headers[i])>=0)return i;return -1;}
+function examFindStudent_(sbd){
+  var sh=examEnsureSheets_().roster, h=examHeaders_(sh), cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']), cN=examCol_(h,['HOTEN','TENHOCVIEN','HO&TEN','TEN']), cC=examCol_(h,['CCCD','SOCANCUOC','CMND']), cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI','THI']);
+  if(cS<0)return {error:'Thiếu cột SBD (hoặc CCCD) trong sheet DANH_SACH_HOC_VIEN.'};
+  if(sh.getLastRow()<2)return {error:'Sheet DANH_SACH_HOC_VIEN chưa có dữ liệu học viên.'};
+  var rows=sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getDisplayValues(), key=String(sbd||'').trim().toUpperCase();
+  for(var i=0;i<rows.length;i++)if(String(rows[i][cS]||'').trim().toUpperCase()===key){return {sh:sh,row:i+2,sbd:String(rows[i][cS]||''),hoTen:cN>=0?String(rows[i][cN]||''):'',cccd:cC>=0?String(rows[i][cC]||''):'',status:cT>=0?String(rows[i][cT]||'CHUA THI').trim().toUpperCase():'CHUA THI',statusCol:cT,headers:h};}
+  return null;
+}
+function examLookupStudent_(token,sbd){
+  if(!examSession_(token))return {ok:false,message:'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'};
+  var st=examFindStudent_(sbd); if(!st)return {ok:false,message:'Không tìm thấy học viên theo số báo danh.'}; if(st.error)return {ok:false,message:st.error};
+  if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:st.status.indexOf('DANG')===0?'EXAM_IN_PROGRESS':'ALREADY_TAKEN',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN nếu lượt thi bị gián đoạn.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.',student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,status:st.status}};
+  return {ok:true,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd,status:st.status||'CHUA THI'}};
+}
+function examBegin_(token,sbd){
+  var sess=examSession_(token); if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
+  var lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    var st=examFindStudent_(sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên.'};if(st.error)return {ok:false,message:st.error};
+    if(st.status==='DA THI'||st.status==='ĐÃ THI'||st.status==='DANG THI'||st.status==='ĐANG THI')return {ok:false,code:'STUDENT_LOCKED',message:st.status.indexOf('DANG')===0?'Học viên đang có lượt thi chưa kết thúc. Liên hệ ADMIN.':'Học viên đã thi. Chỉ ADMIN mới được mở khóa.'};
+    var headers=st.headers, cT=st.statusCol;
+    if(cT<0){cT=headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
+    var examId=Utilities.getUuid(), now=new Date();
+    st.sh.getRange(st.row,cT+1).setValue('DANG THI');
+    var cAt2=examCol_(headers,['CAPNHATLUC']);if(cAt2>=0)st.sh.getRange(st.row,cAt2+1).setValue(now);
+    PropertiesService.getScriptProperties().setProperty('EXAM_ACTIVE_'+examId,JSON.stringify({sbd:st.sbd,teacher:sess.taiKhoan,startedAt:now.toISOString(),status:'RUNNING'}));
+    return {ok:true,examId:examId,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd},startedAt:now.toISOString()};
+  }finally{lock.releaseLock();}
+}
+function examComplete_(token,examId,detail){
+  var sess=examSession_(token);if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
+  var props=PropertiesService.getScriptProperties(),key='EXAM_ACTIVE_'+String(examId||''),raw=props.getProperty(key);if(!raw)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};
+  var active=JSON.parse(raw);if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};if(active.status==='COMPLETED')return {ok:true,duplicate:true};
+  var lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    var st=examFindStudent_(active.sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên khi lưu kết quả.'};
+    var sh=examEnsureSheets_().results, end=new Date(), result=detail||{};
+    sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]);
+    var cT=st.statusCol;if(cT<0){cT=st.headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
+    st.sh.getRange(st.row,cT+1).setValue('DA THI');
+    var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(end);
+    var cBy=examCol_(st.headers,['CAPNHATBOI']);if(cBy>=0)st.sh.getRange(st.row,cBy+1).setValue(sess.taiKhoan);
+    active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,status:'DA THI'};
+  }finally{lock.releaseLock();}
+}
+function examAdminReset_(token,sbd){
+  var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được mở khóa học viên.'};
+  var lock=LockService.getScriptLock();lock.waitLock(10000);try{
+    var st=examFindStudent_(sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên.'};if(st.error)return {ok:false,message:st.error};
+    var cT=st.statusCol;if(cT<0){cT=st.headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
+    st.sh.getRange(st.row,cT+1).setValue('CHUA THI');var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(new Date());var cBy=examCol_(st.headers,['CAPNHATBOI']);if(cBy>=0)st.sh.getRange(st.row,cBy+1).setValue(sess.taiKhoan);
+    return {ok:true,message:'Đã mở khóa học viên '+st.sbd+'. Kết quả thi cũ được giữ nguyên.'};
+  }finally{lock.releaseLock();}
+}
+function examAdminList_(token){
+  var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được xem danh sách.'};
+  var sh=examEnsureSheets_().roster,h=examHeaders_(sh),cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']),cN=examCol_(h,['HOTEN','TENHOCVIEN','TEN']),cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI']);if(cS<0)return {ok:false,message:'Thiếu cột SBD.'};
+  var data=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,sh.getLastColumn()).getDisplayValues():[];
+  return {ok:true,students:data.map(function(r){return {sbd:r[cS]||'',hoTen:cN>=0?r[cN]:'',status:cT>=0?r[cT]||'CHUA THI':'CHUA THI'};}).filter(function(x){return x.sbd;})};
+}
+
 /** API cho PWA GitHub Pages: chỉ dùng để kiểm tra đăng nhập giáo viên. */
 function doPost(e) {
   try {
@@ -647,6 +733,16 @@ function doPost(e) {
       result=validateSession(String(body.token||''));
     }else if(action==='logout'){
       result=logout(String(body.token||''));
+    }else if(action==='lookupstudent'){
+      result=examLookupStudent_(String(body.token||''),String(body.sbd||''));
+    }else if(action==='beginexam'){
+      result=examBegin_(String(body.token||''),String(body.sbd||''));
+    }else if(action==='completeexam'){
+      result=examComplete_(String(body.token||''),String(body.examId||''),body.result||{});
+    }else if(action==='adminresetstudent'){
+      result=examAdminReset_(String(body.token||''),String(body.sbd||''));
+    }else if(action==='adminliststudents'){
+      result=examAdminList_(String(body.token||''));
     }else{
       result={ok:false,message:'ACTION_KHONG_HOP_LE'};
     }

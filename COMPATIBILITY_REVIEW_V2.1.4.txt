@@ -1,0 +1,27 @@
+SA HÌNH AI V2.1.4 — KIỂM TRA TƯƠNG THÍCH
+
+Đã rà soát tĩnh các thành phần trong gói gốc và chỉnh những điểm lệch phiên bản/cấu hình:
+1. Đồng bộ DEPLOY_VERSION trong app.js, nhãn trên index.html và VERSION.txt về V2.1.4.
+2. Bỏ fallback URL Apps Script từ localStorage; gas-config.js là nguồn URL cố định như README mô tả.
+3. Bỏ hàm cấu hình URL cũ không còn giao diện sử dụng.
+4. Giữ nguyên engine TAG, luật 14 bài, audio, bộ đếm 18 phút, xác nhận vị trí và cấu hình đăng nhập một tài khoản/một thiết bị.
+5. Hợp đồng API khớp: PWA gửi action login/validate/logout; doPost trong Code.gs xử lý đủ ba action và trả success/ok/data để app.js đọc.
+6. Xác thực phiên ở máy chủ kiểm tra token, ngày, trạng thái giáo viên và token hoạt động hiện tại.
+
+KIỂM TRA TỰ ĐỘNG ĐÃ THỰC HIỆN
+- node --check app.js: đạt.
+- node --check apriltag-adapter.js: đạt.
+- node --check Code.gs sau khi sao chép tạm thành .js: đạt.
+- Kiểm tra cấu trúc ZIP và danh sách asset Service Worker.
+
+GIỚI HẠN
+- Chưa thể kiểm thử trực tiếp với Google Sheets/Apps Script đang triển khai, camera điện thoại, trình duyệt Safari/Chrome hoặc quét TAG vật lý.
+- Gói gốc có tên README V2.1.4 nhưng nhãn index/app.js/Version.txt bị lệch; đã đồng bộ.
+- Service Worker cache các asset audio chính; nếu đổi tên hoặc thêm file audio mới, cần cập nhật ASSETS trong sw.js.
+- Đảm bảo URL trong gas-config.js trỏ đúng deployment Apps Script đang hoạt động; không thay URL nếu deployment hiện tại vẫn là URL chuẩn.
+
+SAU KHI CẬP NHẬT
+1. Deploy Code.gs lên Apps Script (New version) nếu backend chưa phải bản V2.1.4 đang dùng.
+2. Upload toàn bộ nội dung ZIP lên đúng thư mục root GitHub Pages, không chỉ riêng app.js/index.html.
+3. Mở PWA online, đóng hoàn toàn rồi mở lại; nếu vẫn thấy phiên bản cũ, xóa dữ liệu site/cache của PWA và mở lại.
+4. Kiểm thử đăng nhập đúng/sai, khóa tài khoản, đăng nhập cùng tài khoản trên thiết bị thứ hai, sang ngày mới, offline/online, camera, TAG 01, B08 TAG 82, B12 TAG 123, timer tổng 18 phút và THI LẠI.
