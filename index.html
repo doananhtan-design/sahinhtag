@@ -1,7 +1,7 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
 <div id="loginOverlay"><form class="login-card" id="teacherLoginForm"><input id="loginUser" autocomplete="username" placeholder="Tài khoản giáo viên" aria-label="Tài khoản giáo viên" required><input id="loginPass" type="password" autocomplete="current-password" placeholder="Mật khẩu" aria-label="Mật khẩu" required><button class="login-btn" id="loginBtn" type="submit">ĐĂNG NHẬP</button><div id="loginError" class="login-error" role="alert"></div></form></div>
-<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.9-THI-LOAI-TRUC-TIEP</span></header>
+<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.11</span></header>
 <nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
   <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
   <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
@@ -37,6 +37,11 @@
     <div id="candidateError" class="candidate-error" role="alert"></div>
     <div id="adminUnlockPanel" class="admin-unlock hidden"><strong>ADMIN · MỞ KHÓA THI LẠI</strong><div class="candidate-row"><input id="adminResetSbd" placeholder="Số báo danh cần mở khóa"><button id="adminResetBtn" type="button">MỞ KHÓA</button></div><div id="adminResetMessage"></div></div>
   </div>
+</section>
+<section id="officialScorePanel" class="official-score-panel hidden" aria-live="polite">
+  <div class="official-score-head"><span>ĐIỂM THI CÒN LẠI</span><strong><span id="officialScoreValue">100</span><small> / 100</small></strong></div>
+  <div class="official-score-track"><div id="officialScoreFill" class="official-score-fill" style="width:100%"></div></div>
+  <div class="official-score-foot"><span>Số lỗi trừ 5 điểm: <strong id="officialPenaltyCount">0</strong></span><span>Cập nhật trực tiếp</span></div>
 </section>
 <button class="start-btn" id="startBtn">▶ BẮT ĐẦU</button>
 <section class="total-clock total-clock-top" aria-label="Đồng hồ tổng thời gian toàn bài">
