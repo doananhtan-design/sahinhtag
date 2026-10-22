@@ -707,7 +707,7 @@ function examComplete_(token,examId,detail){
     var st=examFindStudent_(active.sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên khi lưu kết quả.'};
     var sh=examEnsureSheets_().results, end=new Date(), result=detail||{}, all=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues():[], resultRow=-1;
     for(var ri=0;ri<all.length;ri++)if(String(all[ri][0])===String(examId)){resultRow=ri+2;break;}
-    if(resultRow<0){sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]);}else{sh.getRange(resultRow,7,1,3).setValues([[end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]]);}
+    if(resultRow<0){sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,(String(result.result||'').toUpperCase()==='LOAI_TRUC_TIEP'?'KHONG DAT - LOAI TRUC TIEP':(result.result||'HOAN_THANH')),JSON.stringify(result).slice(0,45000)]);}else{sh.getRange(resultRow,7,1,3).setValues([[end,(String(result.result||'').toUpperCase()==='LOAI_TRUC_TIEP'?'KHONG DAT - LOAI TRUC TIEP':(result.result||'HOAN_THANH')),JSON.stringify(result).slice(0,45000)]]);}
     var cT=st.statusCol;if(cT<0){cT=st.headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
     st.sh.getRange(st.row,cT+1).setValue('DA THI');
     var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(end);
