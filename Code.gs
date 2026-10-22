@@ -693,6 +693,7 @@ function examBegin_(token,sbd){
     var examId=Utilities.getUuid(), now=new Date();
     st.sh.getRange(st.row,cT+1).setValue('DANG THI');
     var cAt2=examCol_(headers,['CAPNHATLUC']);if(cAt2>=0)st.sh.getRange(st.row,cAt2+1).setValue(now);
+    var resultSheet=examEnsureSheets_().results;resultSheet.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,now,'','DANG THI - DANG CAP NHAT','{}']);
     PropertiesService.getScriptProperties().setProperty('EXAM_ACTIVE_'+examId,JSON.stringify({sbd:st.sbd,teacher:sess.taiKhoan,startedAt:now.toISOString(),status:'RUNNING'}));
     return {ok:true,examId:examId,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd},startedAt:now.toISOString()};
   }finally{lock.releaseLock();}
@@ -704,14 +705,27 @@ function examComplete_(token,examId,detail){
   var lock=LockService.getScriptLock();lock.waitLock(10000);
   try{
     var st=examFindStudent_(active.sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên khi lưu kết quả.'};
-    var sh=examEnsureSheets_().results, end=new Date(), result=detail||{};
-    sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]);
+    var sh=examEnsureSheets_().results, end=new Date(), result=detail||{}, all=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues():[], resultRow=-1;
+    for(var ri=0;ri<all.length;ri++)if(String(all[ri][0])===String(examId)){resultRow=ri+2;break;}
+    if(resultRow<0){sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]);}else{sh.getRange(resultRow,7,1,3).setValues([[end,result.result||'HOAN_THANH',JSON.stringify(result).slice(0,45000)]]);}
     var cT=st.statusCol;if(cT<0){cT=st.headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
     st.sh.getRange(st.row,cT+1).setValue('DA THI');
     var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(end);
     var cBy=examCol_(st.headers,['CAPNHATBOI']);if(cBy>=0)st.sh.getRange(st.row,cBy+1).setValue(sess.taiKhoan);
     active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,status:'DA THI'};
   }finally{lock.releaseLock();}
+}
+function examProgress_(token,examId,detail){
+  var sess=examSession_(token);if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
+  var props=PropertiesService.getScriptProperties(),key='EXAM_ACTIVE_'+String(examId||''),raw=props.getProperty(key);
+  if(!raw)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};
+  var active=JSON.parse(raw);if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};
+  if(active.status!=='RUNNING')return {ok:false,message:'Lượt thi đã kết thúc.'};
+  var ss=examEnsureSheets_(),sh=ss.results,rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues():[],row=-1;
+  for(var i=0;i<rows.length;i++)if(String(rows[i][0])===String(examId)){row=i+2;break;}
+  if(row<0)return {ok:false,message:'Thiếu bản ghi lượt thi.'};
+  var d=detail||{};sh.getRange(row,9).setValue(JSON.stringify(d).slice(0,45000));sh.getRange(row,8).setValue('DANG THI - DANG CAP NHAT');
+  active.lastProgressAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true};
 }
 function examAdminReset_(token,sbd){
   var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được mở khóa học viên.'};
@@ -747,6 +761,8 @@ function doPost(e) {
       result=examBegin_(String(body.token||''),String(body.sbd||''));
     }else if(action==='completeexam'){
       result=examComplete_(String(body.token||''),String(body.examId||''),body.result||{});
+    }else if(action==='examprogress'){
+      result=examProgress_(String(body.token||''),String(body.examId||''),body.detail||{});
     }else if(action==='adminresetstudent'){
       result=examAdminReset_(String(body.token||''),String(body.sbd||''));
     }else if(action==='adminliststudents'){
