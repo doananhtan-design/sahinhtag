@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.7-THI-LOAI-TRUC-TIEP-18M';
+const DEPLOY_VERSION='V2.1.9-THI-LOAI-TRUC-TIEP-B08-B12-SAI-QUY-TRINH';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -424,10 +424,10 @@ let officialProgressTicker=0, officialHardDeadline=0;
 function renderOfficialStudentInfo(){if(activeExamMode!=='official'||!selectedCandidate)return;const el=$('candidateInfo');if(!el)return;el.style.whiteSpace='pre-line';const remaining=officialHardDeadline?Math.max(0,Math.ceil((officialHardDeadline-Date.now())/1000)):null;const timer=remaining===null?'':`\nThời gian còn lại: ${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;el.textContent=`SBD: ${selectedCandidate.sbd||''}\nHọ và tên: ${selectedCandidate.hoTen||'Chưa có'}\nKhóa học: ${selectedCandidate.khoaHoc||'Chưa có'}\nNgày sinh: ${selectedCandidate.ngaySinh||'Chưa có'}\nSố CCCD: ${selectedCandidate.cccd||'Chưa có'}\nTrạng thái: ${officialExamLocked?'DA THI':(activeOfficialExamId?'DANG THI':(selectedCandidate.status||'CHUA THI'))}${timer}`;}
 function stopOfficialProgress(){if(officialProgressTicker){clearInterval(officialProgressTicker);officialProgressTicker=0;}}
 function startOfficialProgress(){stopOfficialProgress();officialHardDeadline=Date.now()+18*60*1000;renderOfficialStudentInfo();officialProgressTicker=setInterval(async()=>{renderOfficialStudentInfo();if(!activeOfficialExamId||!engine||officialExamLocked)return;if(Date.now()>=officialHardDeadline){event('EXAM_COMPLETED',{result:'TIME_LIMIT_18_MIN',elapsedMs:18*60*1000,autoEnded:true});return;}try{await apiPost({action:'examprogress',token:window.currentTeacher?.token,examId:activeOfficialExamId,detail:{result:'DANG THI - DANG CAP NHAT',elapsedMs:Math.max(0,18*60*1000-(officialHardDeadline-Date.now())),events:(engine?.events||[]).slice(-500),score:Math.max(0,100-25*countOfficialPenaltyEvents(engine?.events||[])),penaltyCount:countOfficialPenaltyEvents(engine?.events||[]),lastUpdate:new Date().toISOString()}});}catch(e){console.warn('Exam progress sync failed',e);}},10000);}
-const OFFICIAL_DIRECT_FAIL_EVENTS=new Set(['B01_TAG_111_TIMEOUT','B03_TIMEOUT_30S','B03_ROLLBACK']);
+const OFFICIAL_DIRECT_FAIL_EVENTS=new Set(['B01_TAG_111_TIMEOUT','B03_TIMEOUT_30S','B03_ROLLBACK','B08_NO_GHEP_XE','B12_NO_GHEP_XE','OFFICIAL_WRONG_SEQUENCE']);
 function isOfficialDirectFail(type,data={}){return OFFICIAL_DIRECT_FAIL_EVENTS.has(type)||(type==='POSITION_COMPARE'&&String(data.course||'').toLowerCase()==='b03'&&String(data.result||'').toUpperCase()==='QUA_VI_TRI');}
 function countOfficialPenaltyEvents(events){const seen=new Set();let count=0;for(const e of (events||[])){if(!isOfficialDirectFail(e.type,e))continue;const key=e.type+'|'+String(e.course||'b03')+'|'+String(e.tag||e.checkTag||'')+'|'+String(e.afterMs||'');if(seen.has(key))continue;seen.add(key);count++;}return count;}
-function event(type,data={}){if(!engine)return;const now=new Date().toISOString();engine.events.push({at:now,type,...data});persist();if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&isOfficialDirectFail(type,data)){const penalties=countOfficialPenaltyEvents(engine.events);const score=Math.max(0,100-25*penalties);set('status',`⛔ LOẠI TRỰC TIẾP — ${String(data.course||'').toUpperCase()||type} — CÒN ${score} ĐIỂM`);playSharedAudio('hoclai.mp3').catch(()=>playSharedAudio('thitruot.mp3'));completeOfficialExam({result:'LOAI_TRUC_TIEP',reason:type,score,penalty:-25,elapsedMs:officialHardDeadline?Math.max(0,18*60*1000-(officialHardDeadline-Date.now())):0,directFail:true,completedAt:now,events:engine.events.slice(-500)}).catch(e=>console.error('Save direct-fail result failed',e));return;}if(type==='EXAM_COMPLETED'&&activeExamMode==='official'&&activeOfficialExamId)completeOfficialExam({...data,score:Math.max(0,100-25*countOfficialPenaltyEvents(engine.events)),events:engine.events.slice(-500)}).catch(e=>console.error('Save exam result failed',e));}
+function event(type,data={}){if(!engine)return;const now=new Date().toISOString();engine.events.push({at:now,type,...data});persist();if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&isOfficialDirectFail(type,data)){const penalties=countOfficialPenaltyEvents(engine.events);const score=Math.max(0,100-25*penalties);set('status',`⛔ LOẠI TRỰC TIẾP — ${String(data.course||'').toUpperCase()||type} — CÒN ${score} ĐIỂM`);(async()=>{if(data.faultText&&'speechSynthesis'in window){try{window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(data.faultText);u.lang='vi-VN';u.rate=0.9;await new Promise(resolve=>{u.onend=resolve;u.onerror=resolve;window.speechSynthesis.speak(u);setTimeout(resolve,5000);});}catch(_){}}else if(data.faultAudio){await playSharedAudio(data.faultAudio);}await playSharedAudio('hoclai.mp3').catch(()=>playSharedAudio('thitruot.mp3'));})();completeOfficialExam({result:'LOAI_TRUC_TIEP',reason:type,score,penalty:-25,elapsedMs:officialHardDeadline?Math.max(0,18*60*1000-(officialHardDeadline-Date.now())):0,directFail:true,completedAt:now,events:engine.events.slice(-500)}).catch(e=>console.error('Save direct-fail result failed',e));return;}if(type==='EXAM_COMPLETED'&&activeExamMode==='official'&&activeOfficialExamId)completeOfficialExam({...data,score:Math.max(0,100-25*countOfficialPenaltyEvents(engine.events)),events:engine.events.slice(-500)}).catch(e=>console.error('Save exam result failed',e));}
 async function completeOfficialExam(data){if(officialExamLocked)return;officialExamLocked=true;try{const r=await apiPost({action:'completeexam',token:window.currentTeacher?.token,examId:activeOfficialExamId,result:{result:data.result||'HOAN_THANH',elapsedMs:data.elapsedMs||0,completedAt:new Date().toISOString(),events:(engine?.events||[]).slice(-500)}});const d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false)throw Error(d.message||r.message||'Không lưu được kết quả thi');if(engine){engine.result='STOPPED';persist();}stopTotal18Ticker();stopOfficialProgress();officialHardDeadline=0;stopCamera();const directFail=String(data.result||'').toUpperCase()==='LOAI_TRUC_TIEP';set('status',directFail?'⛔ LOẠI TRỰC TIẾP — ĐÃ CHỐT KẾT QUẢ':'ĐÃ THI — ĐÃ KHÓA LƯỢT THI');alertMsg(directFail?'LOẠI TRỰC TIẾP. ĐÃ GHI NHẬN LỖI VÀ CHỐT KẾT QUẢ KHÔNG ĐẠT.':'ĐÃ LƯU KẾT QUẢ. HỌC VIÊN ĐÃ CHUYỂN SANG ĐÃ THI; CHỈ ADMIN MỚI MỞ KHÓA.',7000);const sb=$('startBtn'),rb=$('retryBtn');if(sb){sb.disabled=true;sb.textContent='🔒 HỌC VIÊN ĐÃ THI';}if(rb)rb.classList.add('hidden');const info=$('candidateInfo');if(info){info.style.whiteSpace='pre-line';info.textContent=`SBD: ${selectedCandidate?.sbd||''}\nHọ và tên: ${selectedCandidate?.hoTen||'Chưa có'}\nKhóa học: ${selectedCandidate?.khoaHoc||'Chưa có'}\nNgày sinh: ${selectedCandidate?.ngaySinh||'Chưa có'}\nSố CCCD: ${selectedCandidate?.cccd||'Chưa có'}\nTrạng thái: DA THI — liên hệ ADMIN để mở khóa.`;}}catch(e){officialExamLocked=false;set('status','LỖI LƯU KẾT QUẢ — CẦN KẾT NỐI MẠNG');alertMsg('CẢNH BÁO: CHƯA XÁC NHẬN LƯU KẾT QUẢ. Giữ nguyên kết nối mạng và báo ADMIN. '+(e.message||''),8000);}}
 function setExamMode(mode){stopOfficialProgress();officialHardDeadline=0;activeExamMode=mode;selectedCandidate=null;activeOfficialExamId=null;officialExamLocked=false;const isOfficial=mode==='official';$('practiceModeBtn')?.classList.toggle('active',!isOfficial);$('officialExamModeBtn')?.classList.toggle('active',isOfficial);$('officialExamPanel')?.classList.toggle('hidden',!isOfficial);$('candidateInfo').textContent=isOfficial?'Tra cứu học viên trước khi bắt đầu thi.':'Đang ở chế độ luyện tập.';$('candidateError').textContent='';const sb=$('startBtn');if(sb){sb.disabled=isOfficial;sb.textContent=isOfficial?'▶ XÁC NHẬN — VÀO THI':'▶ BẮT ĐẦU';sb.classList.remove('running');}if(isOfficial&&String(window.currentTeacher?.quyen||'').toUpperCase()==='ADMIN')$('adminUnlockPanel')?.classList.remove('hidden');else $('adminUnlockPanel')?.classList.add('hidden');}
 async function lookupOfficialCandidate(){const sbd=$('candidateSbd').value.trim();$('candidateError').textContent='';if(!sbd){$('candidateError').textContent='Nhập số báo danh.';return;}try{const r=await apiPost({action:'lookupstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false){selectedCandidate=null;if(d.student){const st=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${st.sbd||''}\nHọ và tên: ${st.hoTen||'Chưa có'}\nKhóa học: ${st.khoaHoc||'Chưa có'}\nNgày sinh: ${st.ngaySinh||'Chưa có'}\nSố CCCD: ${st.cccd||'Chưa có'}\nTrạng thái thi: ${st.status||'CHUA THI'}\nQuyền thi: ${st.permission||'Chưa xác định'}`;}else $('candidateInfo').textContent='Chưa có thông tin học viên.';$('candidateError').textContent=d.message||'Không thể tra cứu.';$('startBtn').disabled=true;return;}selectedCandidate=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${d.student.sbd||''}\nHọ và tên: ${d.student.hoTen||'Chưa có'}\nKhóa học: ${d.student.khoaHoc||'Chưa có'}\nNgày sinh: ${d.student.ngaySinh||'Chưa có'}\nSố CCCD: ${d.student.cccd||'Chưa có'}\nTrạng thái: ${d.student.status||''}`;$('startBtn').disabled=false;$('startBtn').textContent='▶ XÁC NHẬN — VÀO THI';renderOfficialStudentInfo();}catch(e){$('candidateError').textContent='Không kết nối được máy chủ. Thi chính thức cần có mạng.';}}
@@ -1243,8 +1243,15 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(this.index>=0&&idx!==this.index+1)return false;if(id===this.lastAnnounce)return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;if(this.index>=0&&idx!==this.index+1){if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
+   // Thi chính thức: TAG bài kế tiếp xuất hiện trước TAG xác nhận ghép xe là lỗi loại trực tiếp.
+   if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&this.current){
+     const ck=String(this.current.key||'').toLowerCase();
+     const checkSeen=(engine?.events||[]).some(e=>e.type==='CHECK_TAG_DETECTED'&&String(e.course||'').toLowerCase()===ck&&Number(e.checkTag)===(ck==='b08'?82:123));
+     if(ck==='b08'&&Number(id)===9&&!checkSeen){event('B08_NO_GHEP_XE',{course:'b08',tag:9,requiredTag:82,faultText:'Không ghép xe',penalty:-25,directFail:true,message:'TAG 09 trước TAG 82'});return;}
+     if(ck==='b12'&&Number(id)===13&&!checkSeen){event('B12_NO_GHEP_XE',{course:'b12',tag:13,requiredTag:123,faultText:'Không ghép xe',penalty:-25,directFail:true,message:'TAG 13 trước TAG 123'});return;}
+   }
    // B08/B12: không mở khóa TAG lần 2 chỉ vì thấy TAG khác hoặc mất 1 frame.
    // Việc xác nhận TAG lần 1 đã rời khung được debounce trong update().
    if(id===141){
@@ -1443,6 +1450,27 @@ function initAppTabs(){
 }
 initAppTabs();
 
+function speakOfficialWelcome(sbd){
+  // Phát lời chào bằng giọng đọc tiếng Việt của trình duyệt; không phụ thuộc file MP3 riêng.
+  if(!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance==='undefined'){
+    set('status','ĐÃ VÀO THI — THIẾT BỊ KHÔNG HỖ TRỢ GIỌNG ĐỌC');
+    return false;
+  }
+  try{
+    window.speechSynthesis.cancel();
+    const digits=String(sbd??'').trim().split('').join(' ');
+    const utterance=new SpeechSynthesisUtterance(`Chào mừng bạn, số báo danh ${digits}, đến với kỳ sát hạch tại Trung tâm Dạy nghề Thanh Long Đỏ, chúc bạn thi đạt.`);
+    utterance.lang='vi-VN';
+    utterance.rate=0.88;
+    utterance.pitch=1;
+    const voices=window.speechSynthesis.getVoices();
+    const viVoice=voices.find(v=>/^vi(-|_)?VN$/i.test(v.lang)) || voices.find(v=>/^vi/i.test(v.lang));
+    if(viVoice) utterance.voice=viVoice;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  }catch(err){console.warn('Không phát được lời chào thi:',err);return false;}
+}
+
 async function startExam(){
   switchAppTab('exam');
   showLocalVehicleProfile();
@@ -1470,7 +1498,7 @@ async function startExam(){
   }
   nearestHeld=null;nearestSwitchAt=0;
   engine=new ExamEngine();
-  if(activeExamMode==='official'){startOfficialProgress();renderOfficialStudentInfo();}
+  if(activeExamMode==='official'){startOfficialProgress();renderOfficialStudentInfo();speakOfficialWelcome(selectedCandidate?.sbd);}
   set('status','ĐỢI XUẤT PHÁT — CHỜ TAG 01');
   set('course','WAITING');set('tag','--');set('timer','00:00');set('stable','0.0s');set('courseTimer','--');hideSecondaryTimer();set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
   persist();event('EXAM_STARTED',{teacher:window.currentTeacher});alertMsg('🚗 BẮT ĐẦU — CHỜ TAG 01');
