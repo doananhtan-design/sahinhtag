@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.12-FIX-B12-TAG123-AUDIO';
+const DEPLOY_VERSION='V2.1.17-PRACTICE-RESET-TAG-ORDER';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -1305,7 +1305,7 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;if(this.index>=0&&idx!==this.index+1){if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
    // Thi chính thức: TAG bài kế tiếp xuất hiện trước TAG xác nhận ghép xe là lỗi loại trực tiếp.
    if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&this.current){
@@ -1313,6 +1313,15 @@ class ExamEngine{
      const checkSeen=(engine?.events||[]).some(e=>e.type==='CHECK_TAG_DETECTED'&&String(e.course||'').toLowerCase()===ck&&Number(e.checkTag)===(ck==='b08'?82:123));
      if(ck==='b08'&&Number(id)===9&&!checkSeen){event('B08_NO_GHEP_XE',{course:'b08',tag:9,requiredTag:82,faultText:'Không ghép xe',penalty:-25,directFail:true,message:'TAG 09 trước TAG 82'});return;}
      if(ck==='b12'&&Number(id)===13&&!checkSeen){event('B12_NO_GHEP_XE',{course:'b12',tag:13,requiredTag:123,faultText:'Không ghép xe',penalty:-25,directFail:true,message:'TAG 13 trước TAG 123'});return;}
+   }
+   // LUYỆN TẬP: nếu camera bỏ lỡ TAG báo bài 14, TAG 141 vẫn có thể mở bài KT.
+   // Thi chính thức giữ nguyên quy trình nghiêm ngặt, không tự bỏ qua TAG báo bài.
+   if(id===141&&activeExamMode==='practice'&&(!this.current||this.current.key!=='KT')){
+     const ktIndex=ORDER.indexOf('KT');
+     this.index=ktIndex;this.current=this.ruleByKey.KT;this.current.init(t);this.lastAnnounce=COURSE_DEFS.KT.announce;
+     this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;
+     set('course','KT');showPositionConfirm(false);
+     event('COURSE_ANNOUNCED',{course:'KT',tag:141,announceTagMissed:true,mode:'practice'});
    }
    // B08/B12: không mở khóa TAG lần 2 chỉ vì thấy TAG khác hoặc mất 1 frame.
    // Việc xác nhận TAG lần 1 đã rời khung được debounce trong update().
@@ -1348,8 +1357,12 @@ class ExamEngine{
        this.result='RUNNING';
        this.index=-1; this.lastAnnounce=-1; this.lastChecked=-1; this.lastCx=this.lastCy=-1; this.lastArea=0; this.stableAt=0;
        this.tag141Seen=false; this.total18StartAt=0; this.total18DeadlineAt=0; this.total18Expired=false; this.total18NextReminderAt=0;
+       this.startedAt=Date.now(); this.initAtForCommand=this.startedAt; this.totalElapsed=0;
+       this.emergencyTriggered=false; this.emergencyPendingAt=0; this.tagLockUntil=0;
+       if(activeExamMode==='practice'){this.emergencySpot=this.nextEmergencySpot();}
        stopTotal18Ticker();
-       event('AUTO_RESET_AFTER_KT',{nextCourse:'b01',nextTag:1,cameraKept:true});
+       set('timer','00:00');set('courseTimer','--');set('stable','0.0s');set('tag','--');
+       event('AUTO_RESET_AFTER_KT',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null,practiceOutOfOrderAllowed:activeExamMode==='practice'});
      }else{
        set('status',this.current.result==='PASS'?'ĐẠT — TIẾP TỤC BÀI TIẾP THEO':'CÓ LỖI — TIẾP TỤC BÀI TIẾP THEO');
        if(finished==='b01' && this.total18StartAt && !this.tag141Seen){
