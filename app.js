@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.20-STOP-MOTION-AUDIO-QUEUE-NEAREST';
+const DEPLOY_VERSION='V2.1.22-B08-B12-TIMER-STOP-NO-HOANTHANH';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -889,6 +889,21 @@ class CourseRule{
   }
   if(this.state===1){
     if(this.d.end&&tag===this.d.end&&visible){
+      if(this.key==='b04'){
+        // B04: TAG 42 chi ket thuc bo dem 120 giay; tuyet doi khong phat audio.
+        this.state=2;
+        this.warnedTimeout=true;
+        this.timerStoppedAt=t;
+        set('courseTimer','00s');
+        hideSecondaryTimer();
+        event('B04_TIMER_STOP_BY_TAG42',{
+          course:'b04',tag:Number(tag),elapsedMs:Math.max(0,t-this.startedAt),
+          audioPlayed:false,reason:'TAG42_ONLY_STOPS_120S_TIMER',
+          appVersion:DEPLOY_VERSION
+        });
+        set('status','B04 — TAG 42 ĐÃ NHẬN — DỪNG ĐỒNG HỒ 120s');
+        return 'B04_TIMER_STOP_NO_AUDIO';
+      }
       this.finish('PASS','Hoàn thành bài');
       return 'TIMED_END';
     }
@@ -1086,25 +1101,26 @@ class CourseRule{
          event('REPEAT_SEQUENCE_REJECT',{course:this.key,tag,expectedStep:2,actualStep:this.repeatSequenceStep||1,reason:'Chưa hoàn tất TAG kiểm tra'});
          return 'WAITING';
        }
-       this.repeatSequenceStep=4; // khóa ngay lập tức, không cho detector xử lý thêm TAG trong lúc phát âm thanh kết thúc
+       this.repeatSequenceStep=4; // khóa ngay khi nhận TAG lần 2; không phát âm thanh kết thúc
        this.repeatStartTagCount=2;
        this.repeatStartDone=true;
        this.repeatStartDeadlineAt=0;
        this.repeat120Active=false;
        set('courseTimer','00s');
-       event('REPEAT_120S_STOP',{course:this.key,reason:'STEP_3_TAG_DETECTED',tag,elapsedMs:Math.max(0,t-(this.repeatStartAt||t)),appVersion:DEPLOY_VERSION});
+       hideSecondaryTimer();
+       event('REPEAT_120S_STOP',{course:this.key,reason:'SECOND_START_TAG_DETECTED',tag,elapsedMs:Math.max(0,t-(this.repeatStartAt||t)),audioPlayed:false,appVersion:DEPLOY_VERSION});
        event('REPEAT_SECOND_START_TAG',{
          course:this.key,
          startTag:tag,
          checkTag:this.d.check,
          elapsedMs:Math.max(0,t-(this.repeatStartAt||t)),
-         positionCheck:false
+         positionCheck:false,
+         audioPlayed:false
        });
-       set('status',`${this.key.toUpperCase()} — BƯỚC 3/3 — HOÀN THÀNH; KHÓA TAG TIẾP THEO`);
-       event('REPEAT_SEQUENCE_STEP',{course:this.key,step:3,tag,meaning:'Hoàn tất chuỗi 3 bước; khóa các TAG tiếp theo'});
-       event('REPEAT_COURSE_END_AUDIO_QUEUED',{course:this.key,audio:'hoanthanh.mp3',appVersion:DEPLOY_VERSION});
-       playAndWait('KT','hoanthanh.mp3').then(()=>{this.finish('PASS',`Hoàn thành ${this.key.toUpperCase()} — đủ chuỗi TAG 1-2-3`);event('REPEAT_COURSE_END_AUDIO_DONE',{course:this.key,audio:'hoanthanh.mp3'});});
-       return 'FINISHED';
+       set('status',`${this.key.toUpperCase()} — TAG ${tag} LẦN 2 — ĐÃ DỪNG ĐỒNG HỒ 120s`);
+       event('REPEAT_SEQUENCE_STEP',{course:this.key,step:3,tag,meaning:'TAG vào bài lần 2 đã dừng đồng hồ 120 giây; không phát hoanthanh.mp3'});
+       this.finish('PASS',`${this.key.toUpperCase()} — đã nhận TAG vào bài lần 2`);
+       return 'TIMER_STOP_NO_AUDIO';
      }
    }
    return 'WAITING';
