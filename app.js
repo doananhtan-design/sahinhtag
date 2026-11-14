@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.19-PRACTICE-50M-B08-B12-TIMER-END';
+const DEPLOY_VERSION='V2.1.20-STOP-MOTION-AUDIO-QUEUE-NEAREST';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -17,7 +17,8 @@ const COURSE_DEFS={
  KT:{announce:14,start:141,backupStart:214,name:'Kết thúc bài thi',limit:999}
 };
 const ORDER=Object.keys(COURSE_DEFS);
-const STABLE_MS=1200,DISTANCE_THRESHOLD=12,AREA_THRESHOLD=1500,ALPHA=.7;
+const STABLE_MS=1800,DISTANCE_THRESHOLD=4,AREA_THRESHOLD=0,ALPHA=.7;
+const STOP_WINDOW_MS=1900,STOP_MAX_CENTER_SPAN=9,STOP_MAX_AREA_VARIATION=.045,STOP_MIN_SAMPLES=15,STOP_MAX_GAP_MS=260;
 const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
@@ -83,6 +84,10 @@ let activeAudio = null;
 let criticalAudio = null;
 let audioPlaySeq = 0;
 let criticalAudioSeq = 0;
+let audioQueue=Promise.resolve();
+const audioRecent=new Map(),audioPending=new Set();
+function enqueueAudio(task,key){if(key&&audioPending.has(key))return Promise.resolve(true);if(key&&(Date.now()-(audioRecent.get(key)||0)<350))return Promise.resolve(true);if(key)audioPending.add(key);const run=audioQueue.then(async()=>{const result=await task();if(key&&result)audioRecent.set(key,Date.now());return result;}).finally(()=>{if(key)audioPending.delete(key);});audioQueue=run.catch(err=>{console.warn("Audio queue error",err);return false;});return run;}
+function waitForAudioEnd(a,timeoutMs=20000){if(!a||a.ended||a.paused)return Promise.resolve(true);return new Promise(resolve=>{let done=false;const finish=v=>{if(done)return;done=true;clearTimeout(timer);a.removeEventListener("ended",onEnd);a.removeEventListener("error",onErr);resolve(v);};const onEnd=()=>finish(true),onErr=()=>finish(false),timer=setTimeout(()=>finish(false),timeoutMs);a.addEventListener("ended",onEnd,{once:true});a.addEventListener("error",onErr,{once:true});});}
 const AUDIO_COURSE_DIR = {b01:'b01',b02:'b02',b03:'b03',b04:'b04',b05:'b05',b06:'b06',b07:'b07',b08:'b08',b09:'b09',b10:'b10',b11:'b11',b12:'b12',b13:'b13',kt:'KT',thkc:'THKC'};
 
 function localAudioPath(course,file){
@@ -183,7 +188,7 @@ function reportAudioError(src, err, note=''){
     event('AUDIO_ERROR',{src,code,note});
   }catch(_){}
 }
-async function playDirect(course,file){
+async function playDirectNow(course,file){
   let src=localAudioPath(course,file);
   if(file==='hoanthanh.mp3') src='./audio/KT/hoanthanh.mp3';
   if(file==='THKC.mp3') src='./audio/THKC/THKC.mp3';
@@ -261,6 +266,7 @@ async function playDirect(course,file){
     return false;
   }
 }
+async function playDirect(course,file){const key=`${String(course).toLowerCase()}/${String(file).toLowerCase()}`;return enqueueAudio(async()=>{const ok=await playDirectNow(course,file);if(ok){const src=file==='hoanthanh.mp3'?'./audio/KT/hoanthanh.mp3':localAudioPath(course,file);await waitForAudioEnd(src?audioMem.get(src):null);}return ok;},key);}
 function play(course,file){return playDirect(course,file);}
 async function playAndWait(course,file){
   const ok=await playDirect(course,file);
@@ -289,7 +295,7 @@ async function playAndWait(course,file){
   });
 }
 
-async function playCriticalDirect(course,file){
+async function playCriticalDirectNow(course,file){
   let src=localAudioPath(course,file);
   if(!src){
     reportAudioError(`./audio/${course}/${file}`,null,'Sai đường dẫn audio ưu tiên');
@@ -347,6 +353,7 @@ async function playCriticalDirect(course,file){
     return false;
   }
 }
+async function playCriticalDirect(course,file){const key=`critical:${String(course).toLowerCase()}/${String(file).toLowerCase()}`;return enqueueAudio(async()=>{const ok=await playCriticalDirectNow(course,file);if(ok){const src=localAudioPath(course,file);const mem=String(course).toLowerCase()==='b12'?audioMem:criticalAudioMem;await waitForAudioEnd(src?mem.get(src):null);}return ok;},key);}
 async function playWithDungXeFallback(course){
   const primaryCourse=String(course||'').toLowerCase();
   const primarySrc=localAudioPath(primaryCourse,'dungxe.mp3');
@@ -380,7 +387,7 @@ async function playWithDungXeFallback(course){
   }
   return false;
 }
-async function playSharedAudio(file){
+async function playSharedAudioNow(file){
   const src=`./audio/${String(file||'').trim()}`;
   if(!file){reportAudioError('./audio/<empty>',null,'Thiếu tên file audio dùng chung');return false;}
   try{
@@ -392,6 +399,7 @@ async function playSharedAudio(file){
   }catch(e){reportAudioError(src,e,'Kiểm tra file MP3 và đường dẫn trong thư mục audio/');return false;}
 }
 
+async function playSharedAudio(file){return enqueueAudio(async()=>{const ok=await playSharedAudioNow(file);if(ok)await waitForAudioEnd(audioMem.get(`./audio/${String(file||'').trim()}`));return ok;},`shared:${String(file||'').toLowerCase()}`);}
 async function playErrorSequence(course,primary,text=''){
   // Phát âm thanh lỗi chính hoàn tất rồi mới phát THI TRƯỢT.
   const src=localAudioPath(course,primary);
@@ -495,31 +503,35 @@ function setExamMode(mode){stopOfficialProgress();officialHardDeadline=0;activeE
 async function lookupOfficialCandidate(){const sbd=$('candidateSbd').value.trim();$('candidateError').textContent='';if(!sbd){$('candidateError').textContent='Nhập số báo danh.';return;}try{const r=await apiPost({action:'lookupstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false){selectedCandidate=null;if(d.student){const st=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${st.sbd||''}\nHọ và tên: ${st.hoTen||'Chưa có'}\nKhóa học: ${st.khoaHoc||'Chưa có'}\nNgày sinh: ${st.ngaySinh||'Chưa có'}\nSố CCCD: ${st.cccd||'Chưa có'}\nTrạng thái thi: ${st.status||'CHUA THI'}\nQuyền thi: ${st.permission||'Chưa xác định'}`;}else $('candidateInfo').textContent='Chưa có thông tin học viên.';$('candidateError').textContent=d.message||'Không thể tra cứu.';$('startBtn').disabled=true;return;}selectedCandidate=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${d.student.sbd||''}\nHọ và tên: ${d.student.hoTen||'Chưa có'}\nKhóa học: ${d.student.khoaHoc||'Chưa có'}\nNgày sinh: ${d.student.ngaySinh||'Chưa có'}\nSố CCCD: ${d.student.cccd||'Chưa có'}\nTrạng thái: ${d.student.status||''}`;$('startBtn').disabled=false;$('startBtn').textContent='▶ XÁC NHẬN — VÀO THI';renderOfficialStudentInfo();}catch(e){$('candidateError').textContent='Không kết nối được máy chủ. Thi chính thức cần có mạng.';}}
 async function adminUnlockCandidate(){const sbd=$('adminResetSbd').value.trim();if(!sbd){$('adminResetMessage').textContent='Nhập số báo danh.';return;}if(!confirm('Mở khóa cho học viên này để thi lại? Kết quả thi cũ vẫn được giữ.'))return;try{const r=await apiPost({action:'adminresetstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;$('adminResetMessage').textContent=d.message||(d.ok?'Đã mở khóa.':'Không thực hiện được.');if(d.ok){$('candidateSbd').value=sbd;await lookupOfficialCandidate();}}catch(e){$('adminResetMessage').textContent='Lỗi kết nối máy chủ: '+(e.message||e);}}
 
+function confirmVehicleStationary(engineRef,d,t){
+  const r=engineRef?.current;if(!r||!d?.center||!Number.isFinite(Number(d.area)))return false;
+  const tag=Number(d.id),area=Number(d.area),x=Number(d.center.x),y=Number(d.center.y);
+  if(r.stopCandidateTag!==tag||(r.stopLastSeenAt&&t-r.stopLastSeenAt>STOP_MAX_GAP_MS)){r.stopSamples=[];r.stopCandidateTag=tag;}
+  r.stopLastSeenAt=t;r.stopSamples.push({t,x,y,area});r.stopSamples=r.stopSamples.filter(v=>t-v.t<=STOP_WINDOW_MS);
+  if(r.stopSamples.length<STOP_MIN_SAMPLES)return false;
+  const a=r.stopSamples,span=Math.hypot(Math.max(...a.map(v=>v.x))-Math.min(...a.map(v=>v.x)),Math.max(...a.map(v=>v.y))-Math.min(...a.map(v=>v.y)));
+  const vals=a.map(v=>v.area),mean=vals.reduce((x,y)=>x+y,0)/vals.length,variation=mean?(Math.max(...vals)-Math.min(...vals))/mean:1,duration=a[a.length-1].t-a[0].t;
+  set('stable',`${(duration/1000).toFixed(1)}s`);
+  if(duration<STOP_WINDOW_MS||span>STOP_MAX_CENTER_SPAN||variation>STOP_MAX_AREA_VARIATION)return false;
+  event('VEHICLE_STATIONARY_CONFIRMED',{course:r.key,tag,samples:a.length,durationMs:Math.round(duration),centerSpanPx:Number(span.toFixed(1)),areaVariationPct:Number((variation*100).toFixed(2)),method:'camera-relative-tag-motion'});
+  r.stopSamples=[];return true;
+}
+function resetStopCandidate(engineRef,reason='TAG_LOST'){const r=engineRef?.current;if(!r||!r.stopSamples?.length)return;r.stopSamples=[];r.stopLastSeenAt=0;r.stopCandidateTag=null;set('stable','0.0s');event('VEHICLE_STOP_CONFIRM_RESET',{course:r.key,reason});}
+
 function persist(){if(engine)localStorage.setItem('sahinh_exam_v2',JSON.stringify(engine));}
 function alertMsg(text,ms=3500){const e=$('alert');e.textContent=text;e.classList.remove('hidden');clearTimeout(alertMsg.t);alertMsg.t=setTimeout(()=>e.classList.add('hidden'),ms)}
 function clearOverlay(){if(!overlayCtx)return;overlayCtx.clearRect(0,0,overlay.width,overlay.height)}
 function selectNearestTag(ds,nowMs=performance.now()){
-  if(!Array.isArray(ds)||!ds.length)return [];
-  let nearest=null;
-  for(const d of ds){
-    const area=Number(d?.area)||0;
-    if(!nearest || area>nearest.area) nearest={...d,area};
-  }
-  if(nearestHeld && nearestHeld.id!==nearest.id){
-    const stillVisible=ds.find(x=>Number(x?.id)===Number(nearestHeld.id));
-    if(stillVisible && (nowMs-nearestSwitchAt)<NEAREST_SWITCH_HOLD_MS){
-      nearest={...stillVisible,area:Number(stillVisible.area)||0};
-    }else{
-      nearestHeld=nearest;
-      nearestSwitchAt=nowMs;
-    }
-  }else if(!nearestHeld){
-    nearestHeld=nearest;
-    nearestSwitchAt=nowMs;
-  }else if(nearestHeld.id===nearest.id){
-    nearestHeld=nearest;
-  }
-  return nearestHeld?[nearestHeld]:[];
+  if(!Array.isArray(ds)||!ds.length){nearestHeld=null;return [];}
+  // Cac TAG cung kich thuoc: dien tich chieu lon hon thuong gan camera hon.
+  // Chua co thong so hieu chuan camera/depth de solve pose 3D chinh xac.
+  const ranked=ds.filter(d=>Number(d?.area)>0).map(d=>({...d,area:Number(d.area),proximity:Number(d.area)})).sort((a,b)=>b.proximity-a.proximity);
+  if(!ranked.length)return [];
+  let best=ranked[0];
+  const held=ranked.find(d=>Number(d.id)===Number(nearestHeld?.id));
+  if(held&&Number(held.id)!==Number(best.id)&&best.proximity<held.proximity*1.12)best=held;
+  if(!nearestHeld||Number(nearestHeld.id)!==Number(best.id))nearestSwitchAt=nowMs;
+  nearestHeld={...best};return [nearestHeld];
 }
 
 function drawDetections(ds){
@@ -732,6 +744,7 @@ class CourseRule{
   this.warnedTimeout=false;
   this.warnedRollback=false;
   this.stopFrameCount=0;
+  this.stopSamples=[];this.stopLastSeenAt=0;this.stopCandidateTag=null;
   this.lastCx=-1;
   this.lastCy=-1;
   this.delayAt=0;
@@ -1374,7 +1387,7 @@ class ExamEngine{
        event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
      }
    }
-this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0}}else this.stableAt=0}
+this.announce(id,t);if(!this.current)return;const key=this.current.key;this.current.process(id,d.area,true,d.center,t);if(['b02','b03','b10'].includes(key)&&Number(this.current.d.check)===Number(id)&&!this.current.stopConfirmed){if(confirmVehicleStationary(this,d,t)){this.lastChecked=id;this.current.checkTarget(d.area,t);}}
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
@@ -1720,7 +1733,7 @@ async function loop(t){
       set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
     }finally{processing=false}
   }
-  if(engine) engine.update(t,frameTagIds);
+  if(engine){const r=engine.current;if(r&&['b02','b03','b10'].includes(r.key)&&!r.stopConfirmed){const checkId=Number(r.d.check);if(!frameTagIds.includes(checkId)&&r.stopLastSeenAt&&t-r.stopLastSeenAt>STOP_MAX_GAP_MS)resetStopCandidate(engine,'TAG_LOST_OR_MOVING');}engine.update(t,frameTagIds);}
   raf=requestAnimationFrame(loop);
 }
 
