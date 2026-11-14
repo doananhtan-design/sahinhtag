@@ -159,3 +159,24 @@
 .official-score-foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:#64748b;font-size:.78rem}
 .official-score-value.score-low{color:#b91c1c}
 .official-score-head>strong:has(.score-low){color:#b91c1c}
+
+/* V2.1.23 — theo dõi dừng xe và cấu hình độ nhạy */
+.stop-monitor{margin:10px 12px;padding:13px;border:1px solid #2c5278;border-radius:14px;background:#102b45;color:#fff}
+.stop-monitor-head{display:flex;justify-content:space-between;gap:8px;align-items:center;font-size:13px}
+.stop-monitor-head span{font-size:12px;color:#b8d7f4;font-variant-numeric:tabular-nums}
+.stop-monitor-track{height:14px;margin-top:10px;border-radius:99px;background:#263e59;overflow:hidden}
+.stop-monitor-bar{height:100%;width:0%;border-radius:99px;background:linear-gradient(90deg,#f79009,#12b76a);transition:width .12s linear}
+.stop-monitor-foot{margin-top:7px;font-size:11px;color:#b8cbe0}
+.stop-config-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:12px 0}
+.stop-config-grid label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:700;color:#344054}
+.stop-config-grid input{width:100%;min-width:0;padding:10px;border:1px solid #d0d5dd;border-radius:9px;font-size:16px}
+#saveStopConfigBtn{width:100%;background:#1677ff;color:#fff}
+.teacher-tool-card{margin:12px;padding:14px;border:1px solid #d0d5dd;border-radius:14px;background:#fff;color:#101828}
+.teacher-tool-note{font-size:12px;line-height:1.5;color:#667085;margin-top:8px}
+
+/* V2.1.24 — one simple teacher slider for stop-detection sensitivity */
+.stop-sensitivity-control{margin:12px 2px 10px}
+.stop-sensitivity-labels{display:flex;justify-content:space-between;gap:12px;font-size:10px;line-height:1.45;color:#475467}
+.stop-sensitivity-labels span:last-child{text-align:right}
+#stopSensitivitySlider{display:block;width:100%;margin:13px 0 8px;accent-color:#1677ff;min-height:28px;cursor:pointer}
+.stop-sensitivity-value{text-align:center;font-size:13px;font-weight:800;color:#175cd3}

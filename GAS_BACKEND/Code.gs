@@ -74,7 +74,7 @@ function setupSystem() {
     AUDIO_VERSION: '1',
     AUTO_SYNC_AUDIO: 'TRUE',
     COMPANY_NAME: 'TRUNG TÂM ĐÀO TẠO LÁI XE',
-    APP_VERSION: '2.1.22'
+    APP_VERSION: '2.1.23'
   };
 
   const existing = {};
