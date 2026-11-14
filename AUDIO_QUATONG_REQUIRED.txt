@@ -1,3 +1,0 @@
-Đặt file audio dùng chung tại: ./audio/quatong.mp3
-Khi hết tổng 18:00 mà chưa thấy TAG 141, hệ thống sẽ phát file này.
-Nếu file thiếu hoặc sai đường dẫn, màn hình báo rõ đường dẫn + mã lỗi.

@@ -1,8 +1,0 @@
-B02 audio files expected by V1.3.1:
-audio/b02/baobai.mp3     (phát khi TAG 02)
-audio/b02/vaobai.mp3     (phát khi TAG 21)
-audio/b02/dungxe.mp3     (phát khi xe dừng ổn định tại TAG 22)
-audio/b02/chuaden.mp3    (cảnh báo xe đến sớm/chưa tới vị trí)
-audio/b02/quavitri.mp3   (cảnh báo xe quá vị trí)
-
-Chưa tự tạo/nhân bản MP3 vì chưa được cung cấp trong yêu cầu này.
