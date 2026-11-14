@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.2.4-RESTORE-B02-B03-B10-V217';
+const DEPLOY_VERSION='V2.1.2.5-POSITION-ADMIN-VISUAL-DUNG';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -656,6 +656,34 @@ function savePositionReference(course,tag,area){
   return data;
 }
 
+function renderPositionMonitor(course,currentArea=0,ev=null,phase=''){
+  const panel=$('positionMonitor');
+  if(!panel)return;
+  panel.classList.remove('hidden');
+  const ref=Number(engine?.current?.positionReferenceArea||0);
+  const current=Number(currentArea||0);
+  if(!ev&&ref>0&&current>0)ev=comparePositionReference(course,current);
+  const delta=ref>0&&current>0?current-ref:0;
+  set('positionCourseTag',`${String(course||'').toUpperCase()} · TAG ${engine?.current?.d?.check||'--'}`);
+  set('positionReferenceValue',ref>0?`${Math.round(ref)} px²`:'ADMIN CHƯA XÁC NHẬN');
+  set('positionCurrentValue',current>0?`${Math.round(current)} px²`:'Đang chờ camera');
+  set('positionDeltaValue',ref>0&&current>0?`${delta>=0?'+':''}${Math.round(delta)} px² (${(delta/ref*100).toFixed(1)}%)`:'--');
+  const status=$('positionVisualStatus');
+  if(!status)return;
+  status.classList.remove('is-correct','is-early','is-late');
+  if(ev?.result==='DUNG_VI_TRI'){
+    status.textContent='✅ XE ĐÃ DỪNG ĐÚNG VỊ TRÍ';status.classList.add('is-correct');
+  }else if(ev?.result==='CHUA_DEN'){
+    status.textContent='🟡 XE CHƯA ĐẾN VỊ TRÍ CHUẨN';status.classList.add('is-early');
+  }else if(ev?.result==='QUA_VI_TRI'){
+    status.textContent='⛔ XE ĐÃ QUÁ VỊ TRÍ CHUẨN';status.classList.add('is-late');
+  }else if(phase==='STOP'){
+    status.textContent='🟠 ĐÃ PHÁT HIỆN XE DỪNG — CHỜ ADMIN XÁC NHẬN MỐC';
+  }else{
+    status.textContent='🔎 CAMERA ĐANG THEO DÕI TAG KIỂM TRA';
+  }
+}
+
 function comparePositionReference(course,currentArea){
   const ref=Number(engine?.current?.positionReferenceArea||0);
   if(!(ref>0)||!(currentArea>0))return null;
@@ -678,12 +706,12 @@ function showPositionConfirm(show,course=''){
     btn.classList.remove('hidden');
     btn.disabled=false;
     btn.textContent=course
-      ? `✅ ĐÚNG VỊ TRÍ — ${String(course).toUpperCase()}`
-      : '✅ ĐÚNG VỊ TRÍ';
+      ? `🔐 ADMIN XÁC NHẬN MỐC — ${String(course).toUpperCase()}`
+      : '🔐 ADMIN XÁC NHẬN MỐC';
   }else{
     btn.classList.add('hidden');
     btn.disabled=false;
-    btn.textContent='✅ ĐÚNG VỊ TRÍ';
+    btn.textContent='🔐 ADMIN XÁC NHẬN MỐC';
   }
 }
 
@@ -704,7 +732,7 @@ function capturePositionReference(){
   const area=Number(r.cachedArea||0);
   const tag=Number(r.d.check||0);
   if(!(area>0)||!(tag>0)){
-    if(btn){btn.disabled=false;btn.textContent=`✅ ĐÚNG VỊ TRÍ — ${r.key.toUpperCase()}`;}
+    if(btn){btn.disabled=false;btn.textContent=`🔐 ADMIN XÁC NHẬN MỐC — ${r.key.toUpperCase()}`;}
     set('status',`⚠️ ${r.key.toUpperCase()} — CHƯA CÓ DIỆN TÍCH TAG KIỂM TRA`);
     alertMsg('Chưa có diện tích TAG kiểm tra ổn định để xác nhận vị trí.',3500);
     return;
@@ -717,6 +745,10 @@ function capturePositionReference(){
   r.positionConfirmedByUser=true;
 
   savePositionReference(r.key,tag,area);
+  r.positionResult='DUNG_VI_TRI';
+  r.positionCorrect=true;
+  r.audio('dung.mp3');
+  renderPositionMonitor(r.key,area,{result:'DUNG_VI_TRI'},'ADMIN_CONFIRMED');
   event('POSITION_REFERENCE_CONFIRMED',{
     course:r.key,
     vehicleId:getLocalVehicleId(),
@@ -729,7 +761,7 @@ function capturePositionReference(){
     userConfirmed:true
   });
 
-  set('status',`✅ ${r.key.toUpperCase()} — ĐÃ XÁC NHẬN ĐÚNG VỊ TRÍ`);
+  set('status',`🔐 ADMIN ĐÃ LƯU MỐC CHUẨN ${r.key.toUpperCase()} — ±5%`);
   alertMsg(`✅ ${r.key.toUpperCase()} — ĐÃ XÁC NHẬN ĐÚNG VỊ TRÍ`,3000);
   showPositionConfirm(false);
 }
@@ -1216,6 +1248,7 @@ class CourseRule{
        event('B03_STOP_CONFIRMED',{tag:this.d.check,area:Math.round(a),timerMs:30000,stableMs:STABLE_MS});
        set('status','B03 — DỪNG XE — BẮT ĐẦU ĐẾM 30s');
      }
+     renderPositionMonitor(this.key,a,null,'STOP');
 
      if(!this.positionConfirmedByUser)showPositionConfirm(true,this.key);
 
@@ -1232,7 +1265,10 @@ class CourseRule{
              this.playErrorSequence('quavitri.mp3','Quá vị trí');
            }else if(ev.result==='CHUA_DEN'){
              this.audio('chuaden.mp3');
+           }else if(ev.result==='DUNG_VI_TRI'){
+             this.audio('dung.mp3');
            }
+           renderPositionMonitor(this.key,a,ev);
 
            set('status',
              ev.result==='DUNG_VI_TRI'
@@ -1256,7 +1292,8 @@ class CourseRule{
          }
        }
      }else{
-       set('status',`B03 — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN ✅ ĐÚNG VỊ TRÍ ĐỂ XÁC NHẬN`);
+       renderPositionMonitor(this.key,a,null,'STOP');
+       set('status',`B03 — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — CHỜ ADMIN XÁC NHẬN MỐC`);
      }
      return;
    }
@@ -1279,7 +1316,9 @@ class CourseRule{
        });
      }
 
-     // Nút xác nhận chỉ ghi diện tích chuẩn cho BÀI hiện tại.
+     renderPositionMonitor(this.key,a,null,'STOP');
+
+     // ADMIN xác nhận và lưu diện tích chuẩn trên chính điện thoại này.
      if(!this.positionConfirmedByUser)showPositionConfirm(true,this.key);
 
      // Nếu chưa có mốc: chờ người dùng nhấn nút.
@@ -1292,6 +1331,8 @@ class CourseRule{
 
          if(changed){
            if(ev.audio)this.audio(ev.audio);
+           else if(ev.result==='DUNG_VI_TRI')this.audio('dung.mp3');
+           renderPositionMonitor(this.key,a,ev);
 
            set('status',
              ev.result==='DUNG_VI_TRI'
@@ -1314,7 +1355,8 @@ class CourseRule{
          }
        }
      }else{
-       set('status',`${this.key.toUpperCase()} — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — NHẤN ✅ ĐÚNG VỊ TRÍ ĐỂ XÁC NHẬN`);
+       renderPositionMonitor(this.key,a,null,'STOP');
+       set('status',`${this.key.toUpperCase()} — DIỆN TÍCH HIỆN TẠI: ${Math.round(a)} — CHỜ ADMIN XÁC NHẬN MỐC`);
      }
      return;
    }
@@ -1352,7 +1394,7 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);$('positionMonitor')?.classList.add('hidden');event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
    // B08/B12: TAG báo bài kế tiếp cũng kết thúc bộ đếm phụ 120s.
    // Chỉ dừng đồng hồ; việc chuyển bài vẫn do announce() xử lý theo đúng thứ tự.

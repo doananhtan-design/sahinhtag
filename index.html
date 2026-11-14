@@ -1,7 +1,7 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
 <div id="loginOverlay"><form class="login-card" id="teacherLoginForm"><input id="loginUser" autocomplete="username" placeholder="Tài khoản giáo viên" aria-label="Tài khoản giáo viên" required><input id="loginPass" type="password" autocomplete="current-password" placeholder="Mật khẩu" aria-label="Mật khẩu" required><button class="login-btn" id="loginBtn" type="submit">ĐĂNG NHẬP</button><div id="loginError" class="login-error" role="alert"></div></form></div>
-<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.2.4</span></header>
+<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.2.5</span></header>
 <nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
   <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
   <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
@@ -59,6 +59,17 @@
 <section class="camera card"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas><div id="cameraMsg">Nhấn BẮT ĐẦU để mở camera sau</div></section>
 <section class="card grid"><div><small>BÀI</small><strong id="course">WAITING</strong></div><div><small>TAG</small><strong id="tag">--</strong></div><div><small>TRẠNG THÁI</small><strong id="status">CHỜ THI</strong></div><div><small>THỜI GIAN</small><strong id="timer">00:00</strong></div><div><small>ỔN ĐỊNH</small><strong id="stable">0.0s</strong></div><div><small>THỜI GIAN BÀI</small><strong id="courseTimer">--</strong></div><div><small>TỔNG 18 PHÚT</small><strong id="totalTimer">18:00</strong></div></section>
 <section id="alert" class="alert hidden"></section>
+<section id="positionMonitor" class="position-monitor hidden" aria-live="polite">
+  <div class="position-monitor-title">📍 GIÁM SÁT VỊ TRÍ DỪNG XE</div>
+  <div class="position-monitor-grid">
+    <div><small>BÀI / TAG</small><strong id="positionCourseTag">--</strong></div>
+    <div><small>MỐC CHUẨN ADMIN</small><strong id="positionReferenceValue">Chưa xác nhận</strong></div>
+    <div><small>DIỆN TÍCH HIỆN TẠI</small><strong id="positionCurrentValue">--</strong></div>
+    <div><small>SAI LỆCH</small><strong id="positionDeltaValue">--</strong></div>
+  </div>
+  <div id="positionVisualStatus" class="position-visual-status">ĐANG CHỜ TAG KIỂM TRA</div>
+  <div class="position-tolerance-note">Ngưỡng đúng vị trí: ±5% so với mốc ADMIN đã xác nhận · Mốc lưu trên điện thoại này</div>
+</section>
 <section class="position-actions">
   <button id="confirmPositionBtn" class="confirm-position-btn hidden" type="button">
     ✅ ĐÚNG VỊ TRÍ
