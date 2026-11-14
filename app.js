@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.25-B02-B03-B10-LEGACY-STOP';
+const DEPLOY_VERSION='V2.1.23-TAG141-FINISH-RESET-ALL';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -17,8 +17,8 @@ const COURSE_DEFS={
  KT:{announce:14,start:141,backupStart:214,name:'Kết thúc bài thi',limit:999}
 };
 const ORDER=Object.keys(COURSE_DEFS);
-const STABLE_MS=1200,DISTANCE_THRESHOLD=12,AREA_THRESHOLD=1500,ALPHA=.7;
-
+const STABLE_MS=1800,DISTANCE_THRESHOLD=4,AREA_THRESHOLD=0,ALPHA=.7;
+const STOP_WINDOW_MS=1900,STOP_MAX_CENTER_SPAN=9,STOP_MAX_AREA_VARIATION=.045,STOP_MIN_SAMPLES=15,STOP_MAX_GAP_MS=260;
 const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
 const now=()=>performance.now();
@@ -502,6 +502,21 @@ async function completeOfficialExam(data){if(officialExamLocked)return;officialE
 function setExamMode(mode){stopOfficialProgress();officialHardDeadline=0;activeExamMode=mode;selectedCandidate=null;activeOfficialExamId=null;officialExamLocked=false;const isOfficial=mode==='official';$('practiceModeBtn')?.classList.toggle('active',!isOfficial);$('officialExamModeBtn')?.classList.toggle('active',isOfficial);$('officialExamPanel')?.classList.toggle('hidden',!isOfficial);renderOfficialScore();$('candidateInfo').textContent=isOfficial?'Tra cứu học viên trước khi bắt đầu thi.':'Đang ở chế độ luyện tập.';$('candidateError').textContent='';const sb=$('startBtn');if(sb){sb.disabled=isOfficial;sb.textContent=isOfficial?'▶ XÁC NHẬN — VÀO THI':'▶ BẮT ĐẦU';sb.classList.remove('running');}if(isOfficial&&String(window.currentTeacher?.quyen||'').toUpperCase()==='ADMIN')$('adminUnlockPanel')?.classList.remove('hidden');else $('adminUnlockPanel')?.classList.add('hidden');}
 async function lookupOfficialCandidate(){const sbd=$('candidateSbd').value.trim();$('candidateError').textContent='';if(!sbd){$('candidateError').textContent='Nhập số báo danh.';return;}try{const r=await apiPost({action:'lookupstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false){selectedCandidate=null;if(d.student){const st=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${st.sbd||''}\nHọ và tên: ${st.hoTen||'Chưa có'}\nKhóa học: ${st.khoaHoc||'Chưa có'}\nNgày sinh: ${st.ngaySinh||'Chưa có'}\nSố CCCD: ${st.cccd||'Chưa có'}\nTrạng thái thi: ${st.status||'CHUA THI'}\nQuyền thi: ${st.permission||'Chưa xác định'}`;}else $('candidateInfo').textContent='Chưa có thông tin học viên.';$('candidateError').textContent=d.message||'Không thể tra cứu.';$('startBtn').disabled=true;return;}selectedCandidate=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${d.student.sbd||''}\nHọ và tên: ${d.student.hoTen||'Chưa có'}\nKhóa học: ${d.student.khoaHoc||'Chưa có'}\nNgày sinh: ${d.student.ngaySinh||'Chưa có'}\nSố CCCD: ${d.student.cccd||'Chưa có'}\nTrạng thái: ${d.student.status||''}`;$('startBtn').disabled=false;$('startBtn').textContent='▶ XÁC NHẬN — VÀO THI';renderOfficialStudentInfo();}catch(e){$('candidateError').textContent='Không kết nối được máy chủ. Thi chính thức cần có mạng.';}}
 async function adminUnlockCandidate(){const sbd=$('adminResetSbd').value.trim();if(!sbd){$('adminResetMessage').textContent='Nhập số báo danh.';return;}if(!confirm('Mở khóa cho học viên này để thi lại? Kết quả thi cũ vẫn được giữ.'))return;try{const r=await apiPost({action:'adminresetstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;$('adminResetMessage').textContent=d.message||(d.ok?'Đã mở khóa.':'Không thực hiện được.');if(d.ok){$('candidateSbd').value=sbd;await lookupOfficialCandidate();}}catch(e){$('adminResetMessage').textContent='Lỗi kết nối máy chủ: '+(e.message||e);}}
+
+function confirmVehicleStationary(engineRef,d,t){
+  const r=engineRef?.current;if(!r||!d?.center||!Number.isFinite(Number(d.area)))return false;
+  const tag=Number(d.id),area=Number(d.area),x=Number(d.center.x),y=Number(d.center.y);
+  if(r.stopCandidateTag!==tag||(r.stopLastSeenAt&&t-r.stopLastSeenAt>STOP_MAX_GAP_MS)){r.stopSamples=[];r.stopCandidateTag=tag;}
+  r.stopLastSeenAt=t;r.stopSamples.push({t,x,y,area});r.stopSamples=r.stopSamples.filter(v=>t-v.t<=STOP_WINDOW_MS);
+  if(r.stopSamples.length<STOP_MIN_SAMPLES)return false;
+  const a=r.stopSamples,span=Math.hypot(Math.max(...a.map(v=>v.x))-Math.min(...a.map(v=>v.x)),Math.max(...a.map(v=>v.y))-Math.min(...a.map(v=>v.y)));
+  const vals=a.map(v=>v.area),mean=vals.reduce((x,y)=>x+y,0)/vals.length,variation=mean?(Math.max(...vals)-Math.min(...vals))/mean:1,duration=a[a.length-1].t-a[0].t;
+  set('stable',`${(duration/1000).toFixed(1)}s`);
+  if(duration<STOP_WINDOW_MS||span>STOP_MAX_CENTER_SPAN||variation>STOP_MAX_AREA_VARIATION)return false;
+  event('VEHICLE_STATIONARY_CONFIRMED',{course:r.key,tag,samples:a.length,durationMs:Math.round(duration),centerSpanPx:Number(span.toFixed(1)),areaVariationPct:Number((variation*100).toFixed(2)),method:'camera-relative-tag-motion'});
+  r.stopSamples=[];return true;
+}
+function resetStopCandidate(engineRef,reason='TAG_LOST'){const r=engineRef?.current;if(!r||!r.stopSamples?.length)return;r.stopSamples=[];r.stopLastSeenAt=0;r.stopCandidateTag=null;set('stable','0.0s');event('VEHICLE_STOP_CONFIRM_RESET',{course:r.key,reason});}
 
 function persist(){if(engine)localStorage.setItem('sahinh_exam_v2',JSON.stringify(engine));}
 function alertMsg(text,ms=3500){const e=$('alert');e.textContent=text;e.classList.remove('hidden');clearTimeout(alertMsg.t);alertMsg.t=setTimeout(()=>e.classList.add('hidden'),ms)}
@@ -1388,7 +1403,7 @@ class ExamEngine{
        event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
      }
    }
-this.announce(id,t);if(!this.current)return;const key=this.current.key;this.current.process(id,d.area,true,d.center,t);if(['b02','b03','b10'].includes(key)&&Number(this.current.d.check)===Number(id)&&!this.current.stopConfirmed){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0}}else{this.stableAt=0;set('stable','0.0s')}}
+this.announce(id,t);if(!this.current)return;const key=this.current.key;this.current.process(id,d.area,true,d.center,t);if(['b02','b03','b10'].includes(key)&&Number(this.current.d.check)===Number(id)&&!this.current.stopConfirmed){if(confirmVehicleStationary(this,d,t)){this.lastChecked=id;this.current.checkTarget(d.area,t);}}
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
@@ -1401,15 +1416,28 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;this.curr
        hideSecondaryTimer();
        set('timer','00:00');set('courseTimer','--');
        set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
+       // RESET ALL sau khi âm thanh kết thúc đã phát đủ: làm sạch toàn bộ trạng thái
+       // từng bài và trạng thái vòng thi; giữ camera để nhận TAG 01 cho vòng mới.
+       this.rules.forEach(rule=>rule.reset());
        this.current=null;
        this.result='RUNNING';
-       this.index=-1; this.lastAnnounce=-1; this.lastChecked=-1; this.lastCx=this.lastCy=-1; this.lastArea=0; this.stableAt=0;
-       this.tag141Seen=false; this.total18StartAt=0; this.total18DeadlineAt=0; this.total18Expired=false; this.total18NextReminderAt=0;
+       this.index=-1; this.lastAnnounce=-1; this.lastChecked=-1;
+       this.lastCx=-1; this.lastCy=-1; this.lastArea=0; this.stableAt=0;
+       this.tag141Seen=false; this.total18StartAt=0; this.total18DeadlineAt=0;
+       this.total18Expired=false; this.total18NextReminderAt=0;
        this.startedAt=Date.now(); this.initAtForCommand=this.startedAt; this.totalElapsed=0;
-       this.emergencyTriggered=false; this.emergencyPendingAt=0; this.tagLockUntil=0;
+       this.emergencyTriggered=false; this.emergencyPendingAt=0;
+       // Chặn TAG 141 còn nằm trong khung hình kích hoạt lặp lại ngay sau reset.
+       this.tagLockUntil=t+2500;
        if(activeExamMode==='practice'){this.emergencySpot=this.nextEmergencySpot();}
        stopTotal18Ticker();
-       set('timer','00:00');set('courseTimer','--');set('stable','0.0s');set('tag','--');
+       hideSecondaryTimer();
+       set('course','CHỜ TAG 01'); set('tag','--');
+       set('timer','00:00'); set('stable','0.0s'); set('courseTimer','--');
+       set('totalTimer','18:00'); set('totalTimerBig','18:00');
+       set('totalClockHint','Bắt đầu khi phát báo bài B01');
+       showPositionConfirm(false);
+       event('RESET_ALL_AFTER_TAG_141',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,allCourseRulesReset:true,tagLockMs:2500,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null});
        event('AUTO_RESET_AFTER_KT',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null,practiceOutOfOrderAllowed:activeExamMode==='practice'});
      }else{
        set('status',this.current.result==='PASS'?'ĐẠT — TIẾP TỤC BÀI TIẾP THEO':'CÓ LỖI — TIẾP TỤC BÀI TIẾP THEO');
@@ -1512,7 +1540,6 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;this.curr
      }else if(this.current.key==='KT'&&this.current.state===1&&this.current.ktFinishAt>0&&t>=this.current.ktFinishAt&&!this.current.ktFinishStarted&&!this.current.ktFinalizing){
        // KT completion timer is independent of camera/tag visibility.
        this.current.kt(null,false,t);
-       event('KT_TIMER_TICK',{tagVisible:false,elapsedMs:Math.max(0,t-this.current.ktBatdauAt)});
      }else if(this.current.key==='b03' && this.current.delayAt>0){
        const remain30=Math.max(0,30000-(t-this.current.delayAt));
        const sec=Math.ceil(remain30/1000);
@@ -1545,9 +1572,6 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;this.curr
      }
    }else{
      hideSecondaryTimer();
-   }
-   if(this.current?.key==='KT'&&this.current.is_finished){
-     this.handle({id:-1,area:0,center:null},t);
    }
  }
 }
@@ -1700,6 +1724,7 @@ async function retryExam(){
 window.retryExam=retryExam;
 function finishLocal(){showPositionConfirm(false);stopTotal18Ticker();if(engine){event('EXAM_STOPPED',{result:'STOPPED'});engine.result='STOPPED';persist()}stopCamera();}
 async function loop(t){
+  let frameTagIds=[];
   if(video&&video.readyState>=2&&engine&&adapter?.ready&&!processing){
     processing=true;
     try{
@@ -1708,6 +1733,8 @@ async function loop(t){
       if(workCanvas.height!==vh) workCanvas.height=vh;
       workCtx.drawImage(video,0,0,vw,vh);
       const detected=await adapter.detectFrame(workCanvas);
+      const detectedTagIds=Array.isArray(detected)?detected.map(d=>Number(d?.id)).filter(Number.isFinite):[];
+      frameTagIds=detectedTagIds;
       const ds=selectNearestTag(detected,t);
       drawDetections(ds);
       if(ds.length){
@@ -1722,7 +1749,7 @@ async function loop(t){
       // B08/B12: TAG dừng xe phải được xử lý ngay cả khi không phải TAG gần nhất.
       // Chỉ gọi nhánh xử lý TAG kiểm tra của chính B08/B12; không ảnh hưởng bài khác.
       const current=engine?.current;
-      if(current && ['b08','b12'].includes(current.key) && current.state===1){
+      if(current && (current.key==='b08'||current.key==='b12') && current.state===1){
         const checkId=Number(current.d.check);
         const checkDetection=Array.isArray(detected)?detected.find(d=>Number(d?.id)===checkId):null;
         if(checkDetection && (!ds.length || Number(ds[0].id)!==checkId)){
@@ -1735,7 +1762,7 @@ async function loop(t){
       set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
     }finally{processing=false}
   }
-  if(engine)engine.update(t,frameTagIds);
+  if(engine){const r=engine.current;if(r&&['b02','b03','b10'].includes(r.key)&&!r.stopConfirmed){const checkId=Number(r.d.check);if(!frameTagIds.includes(checkId)&&r.stopLastSeenAt&&t-r.stopLastSeenAt>STOP_MAX_GAP_MS)resetStopCandidate(engine,'TAG_LOST_OR_MOVING');}engine.update(t,frameTagIds);}
   raf=requestAnimationFrame(loop);
 }
 
