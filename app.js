@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.2.5-POSITION-ADMIN-VISUAL-DUNG';
+const DEPLOY_VERSION='V2.1.2.6-POSITION-ADMIN-EARLY-BUTTON-RELAXED-TAG';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -18,6 +18,13 @@ const COURSE_DEFS={
 };
 const ORDER=Object.keys(COURSE_DEFS);
 const STABLE_MS=1800,DISTANCE_THRESHOLD=4,AREA_THRESHOLD=0,ALPHA=.7;
+// B02/B03/B10: giảm ngưỡng ổn định riêng, không thay đổi các bài khác.
+function getPositionTagStability(courseKey){
+  if(isPositionRuleCourse(courseKey)){
+    return {stableMs:500,centerMove:10,areaDelta:350};
+  }
+  return {stableMs:STABLE_MS,centerMove:DISTANCE_THRESHOLD,areaDelta:AREA_THRESHOLD};
+}
 const STOP_WINDOW_MS=1900,STOP_MAX_CENTER_SPAN=9,STOP_MAX_AREA_VARIATION=.045,STOP_MIN_SAMPLES=15,STOP_MAX_GAP_MS=260;
 const $=id=>document.getElementById(id);
 const set=(id,v)=>{const e=$(id);if(e)e.textContent=v};
@@ -1394,7 +1401,10 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());showPositionConfirm(false);$('positionMonitor')?.classList.add('hidden');event('COURSE_ANNOUNCED',{course:key,tag:id});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());
+    showPositionConfirm(isPositionRuleCourse(key),key);
+    $('positionMonitor')?.classList.add('hidden');
+    event('COURSE_ANNOUNCED',{course:key,tag:id,positionAdminButtonVisible:isPositionRuleCourse(key)});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
    // B08/B12: TAG báo bài kế tiếp cũng kết thúc bộ đếm phụ 120s.
    // Chỉ dừng đồng hồ; việc chuyển bài vẫn do announce() xử lý theo đúng thứ tự.
@@ -1445,7 +1455,21 @@ class ExamEngine{
        event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
      }
    }
-this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0}}else this.stableAt=0}
+this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){
+      const cfg=getPositionTagStability(key);
+      const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy);
+      const ad=Math.abs(d.area-this.lastArea);
+      this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;
+      const stableFrame=moved<cfg.centerMove&&ad<cfg.areaDelta;
+      if(stableFrame){
+        if(!this.stableAt)this.stableAt=t;
+        const stable=t-this.stableAt;
+        set('stable',`${(stable/1000).toFixed(1)}s`);
+        if(stable>=cfg.stableMs&&this.lastChecked!==id){
+          this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0;
+        }
+      }else this.stableAt=0;
+    }
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
