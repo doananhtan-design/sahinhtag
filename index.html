@@ -1,7 +1,7 @@
 <!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no"><meta name="theme-color" content="#0b7cff"><meta name="mobile-web-app-capable" content="yes"><link rel="manifest" href="./manifest.json"><link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png"><link rel="stylesheet" href="./app.css"><title>Sa Hình AI</title>
 <script src="https://unpkg.com/js-aruco2@2.0.0/src/cv.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/aruco.js"></script><script src="https://unpkg.com/js-aruco2@2.0.0/src/dictionaries/apriltag_36h11.js"></script></head><body>
 <div id="loginOverlay"><form class="login-card" id="teacherLoginForm"><input id="loginUser" autocomplete="username" placeholder="Tài khoản giáo viên" aria-label="Tài khoản giáo viên" required><input id="loginPass" type="password" autocomplete="current-password" placeholder="Mật khẩu" aria-label="Mật khẩu" required><button class="login-btn" id="loginBtn" type="submit">ĐĂNG NHẬP</button><div id="loginError" class="login-error" role="alert"></div></form></div>
-<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.23</span></header>
+<header><b>SA HÌNH AI</b><span id="net">● OFFLINE</span><span id="appVersionBadge">V2.1.25</span></header>
 <nav id="appTabs" class="app-tabs hidden" aria-label="Điều hướng chính">
   <button id="tabExamBtn" class="app-tab active" type="button">🚗 SA HÌNH</button>
   <button id="tabTeacherBtn" class="app-tab" type="button">👨‍🏫 GIÁO VIÊN</button>
@@ -24,16 +24,6 @@
       <div class="teacher-tool-input-row"><input id="b11DistanceInput" type="number" inputmode="decimal" min="0.1" max="1000" step="0.1" value="30"><button id="saveB11DistanceBtn" type="button">LƯU</button></div>
     </div>
     <div id="b11DistanceStatus" class="teacher-tool-note">Lưu cục bộ trên điện thoại này, chỉ dùng cho xe này.</div>
-  </section>
-  <section class="teacher-tool-card" id="stopConfigCard" aria-label="Thiết lập nhận diện dừng xe">
-    <div class="teacher-tool-head"><strong>⚙ BÀI 02 · 03 · 10 — ĐỘ NHẠY NHẬN DIỆN DỪNG XE</strong></div>
-    <div class="stop-sensitivity-control">
-      <div class="stop-sensitivity-labels"><span>DỄ NHẬN DIỆN<br><b>TƯƠNG ĐỐI</b></span><span>NHẬN DIỆN<br><b>CHÍNH XÁC</b></span></div>
-      <input id="stopSensitivitySlider" type="range" min="0" max="100" step="1" value="50" aria-label="Mức nhận diện dừng xe từ tương đối đến chính xác">
-      <div class="stop-sensitivity-value" id="stopSensitivityValue">50% · Cân bằng</div>
-    </div>
-    <button id="saveStopConfigBtn" type="button">LƯU MỨC NHẬN DIỆN</button>
-    <div id="stopConfigStatus" class="teacher-tool-note">Thanh trượt càng về “Chính xác” thì hệ thống kiểm tra lâu và chặt hơn; càng về “Tương đối” thì dễ xác nhận dừng hơn nhưng có thể nhận nhầm khi xe bò chậm. Cài đặt lưu riêng trên thiết bị này.</div>
   </section>
 </section>
 <main id="examTabPanel" class="tab-panel">
@@ -68,7 +58,6 @@
 </section>
 <section class="camera card"><video id="video" autoplay playsinline muted></video><canvas id="overlay"></canvas><div id="cameraMsg">Nhấn BẮT ĐẦU để mở camera sau</div></section>
 <section class="card grid"><div><small>BÀI</small><strong id="course">WAITING</strong></div><div><small>TAG</small><strong id="tag">--</strong></div><div><small>TRẠNG THÁI</small><strong id="status">CHỜ THI</strong></div><div><small>THỜI GIAN</small><strong id="timer">00:00</strong></div><div><small>ỔN ĐỊNH</small><strong id="stable">0.0s</strong></div><div><small>THỜI GIAN BÀI</small><strong id="courseTimer">--</strong></div><div><small>TỔNG 18 PHÚT</small><strong id="totalTimer">18:00</strong></div></section>
-<section id="stopMonitor" class="stop-monitor hidden" aria-live="polite"><div class="stop-monitor-head"><strong id="stopMonitorTitle">DỪNG XE — ĐANG THEO DÕI</strong><span id="stopMonitorDetail">0/15 mẫu</span></div><div class="stop-monitor-track"><div id="stopMonitorBar" class="stop-monitor-bar"></div></div><div class="stop-monitor-foot">Thanh tiến trình xác minh TAG đứng yên — không đồng nghĩa đã xác nhận dừng xe.</div></section>
 <section id="alert" class="alert hidden"></section>
 <section class="position-actions">
   <button id="confirmPositionBtn" class="confirm-position-btn hidden" type="button">
