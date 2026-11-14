@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.1.23-TAG141-FINISH-RESET-ALL';
+const DEPLOY_VERSION='V2.1.2.4-RESTORE-B02-B03-B10-V217';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -1403,7 +1403,7 @@ class ExamEngine{
        event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
      }
    }
-this.announce(id,t);if(!this.current)return;const key=this.current.key;this.current.process(id,d.area,true,d.center,t);if(['b02','b03','b10'].includes(key)&&Number(this.current.d.check)===Number(id)&&!this.current.stopConfirmed){if(confirmVehicleStationary(this,d,t)){this.lastChecked=id;this.current.checkTarget(d.area,t);}}
+this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy),ad=Math.abs(d.area-this.lastArea);this.lastCx=d.center.x;this.lastCy=d.center.y;this.lastArea=d.area;if(moved<DISTANCE_THRESHOLD&&ad<AREA_THRESHOLD){if(!this.stableAt)this.stableAt=t;const stable=t-this.stableAt;set('stable',`${(stable/1000).toFixed(1)}s`);if(stable>=STABLE_MS&&this.lastChecked!==id){this.lastChecked=id;this.current.checkTarget(d.area,t);this.stableAt=0}}else this.stableAt=0}
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
@@ -1762,7 +1762,7 @@ async function loop(t){
       set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
     }finally{processing=false}
   }
-  if(engine){const r=engine.current;if(r&&['b02','b03','b10'].includes(r.key)&&!r.stopConfirmed){const checkId=Number(r.d.check);if(!frameTagIds.includes(checkId)&&r.stopLastSeenAt&&t-r.stopLastSeenAt>STOP_MAX_GAP_MS)resetStopCandidate(engine,'TAG_LOST_OR_MOVING');}engine.update(t,frameTagIds);}
+  if(engine){engine.update(t,frameTagIds);}
   raf=requestAnimationFrame(loop);
 }
 
