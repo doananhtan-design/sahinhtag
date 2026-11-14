@@ -27,10 +27,15 @@ const APP = {
 };
 
 function doGet(e) {
-  // mode=manage được xác định ở server vì query string có thể không còn nằm
-  // trong location.search của iframe HtmlService.
-  const manage = !!(e && e.parameter && String(e.parameter.mode || '').toLowerCase() === 'manage');
-  const tpl = HtmlService.createTemplateFromFile('Index');
+  // PWA, giao diện quản trị cũ và trang kết quả dùng chung backend.
+  var mode = String(e && e.parameter && e.parameter.mode || '').toLowerCase();
+  if (mode === 'results') {
+    return HtmlService.createHtmlOutputFromFile('AdminKetQua')
+      .setTitle('Quản lý kết quả thi Sa Hình AI')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
+  var manage = mode === 'manage';
+  var tpl = HtmlService.createTemplateFromFile('Index');
   tpl.MANAGE_MODE = manage;
   return tpl.evaluate()
     .setTitle(APP.NAME)
@@ -69,7 +74,7 @@ function setupSystem() {
     AUDIO_VERSION: '1',
     AUTO_SYNC_AUDIO: 'TRUE',
     COMPANY_NAME: 'TRUNG TÂM ĐÀO TẠO LÁI XE',
-    APP_VERSION: '1.0.0'
+    APP_VERSION: '2.1.19'
   };
 
   const existing = {};
@@ -698,21 +703,83 @@ function examBegin_(token,sbd){
     return {ok:true,examId:examId,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd},startedAt:now.toISOString()};
   }finally{lock.releaseLock();}
 }
+function examEventKey_(ev){
+  if(!ev)return '';
+  if(ev.eventId)return String(ev.eventId);
+  return [ev.at||ev.time||ev.timestamp||'',ev.type||ev.event||ev.code||'',ev.course||ev.bai||'',ev.tag||ev.checkTag||'',ev.result||'',ev.message||ev.faultText||''].join('|');
+}
+function examMergeEvents_(oldEvents,newEvents){
+  var map={},out=[];
+  (Array.isArray(oldEvents)?oldEvents:[]).concat(Array.isArray(newEvents)?newEvents:[]).forEach(function(ev){
+    if(!ev||typeof ev!=='object')return;
+    var key=examEventKey_(ev);if(!key)return;
+    if(!map[key]){map[key]=true;out.push(ev);}else{
+      // Incoming copies may contain richer scoring/error metadata; merge without losing earlier fields.
+      for(var i=0;i<out.length;i++){if(examEventKey_(out[i])===key){out[i]=Object.assign({},out[i],ev);break;}}
+    }
+  });
+  return out.slice(-500);
+}
+function examMergeDetail_(oldDetail,newDetail){
+  oldDetail=oldDetail&&typeof oldDetail==='object'?oldDetail:{};
+  newDetail=newDetail&&typeof newDetail==='object'?newDetail:{};
+  var merged=Object.assign({},oldDetail,newDetail);
+  merged.events=examMergeEvents_(oldDetail.events,newDetail.events);
+  if(oldDetail.directFail && !newDetail.directFail)merged.directFail=true;
+  if(oldDetail.directFailReason && !newDetail.directFailReason)merged.directFailReason=oldDetail.directFailReason;
+  if(oldDetail.directFailCourse && !newDetail.directFailCourse)merged.directFailCourse=oldDetail.directFailCourse;
+  merged.lastUpdate=newDetail.lastUpdate||new Date().toISOString();
+  return merged;
+}
+function examSerializeDetail_(detail){
+  var copy=JSON.parse(JSON.stringify(detail||{}));
+  var json=JSON.stringify(copy);
+  while(json.length>45000 && Array.isArray(copy.events) && copy.events.length>1){copy.events.shift();copy.eventsTruncated=true;json=JSON.stringify(copy);}
+  if(json.length>45000){
+    // Keep a valid JSON object instead of truncating JSON mid-string.
+    copy={result:copy.result||'',score:copy.score, directFail:!!copy.directFail,
+      directFailReason:copy.directFailReason||'',directFailCourse:copy.directFailCourse||'',
+      events:(copy.events||[]).slice(-20),eventsTruncated:true,
+      detailWarning:'CHI_TIET_JSON vượt giới hạn ô tính; đã giữ các sự kiện gần nhất.'};
+    json=JSON.stringify(copy);
+  }
+  return json;
+}
+function examFindResultRow_(sh,examId){
+  if(sh.getLastRow()<2)return -1;
+  var ids=sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues();
+  for(var i=0;i<ids.length;i++)if(String(ids[i][0])===String(examId))return i+2;
+  return -1;
+}
 function examComplete_(token,examId,detail){
   var sess=examSession_(token);if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
   var props=PropertiesService.getScriptProperties(),key='EXAM_ACTIVE_'+String(examId||''),raw=props.getProperty(key);if(!raw)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};
   var active=JSON.parse(raw);if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};if(active.status==='COMPLETED')return {ok:true,duplicate:true};
   var lock=LockService.getScriptLock();lock.waitLock(10000);
   try{
+    // Re-read active state after obtaining lock.
+    raw=props.getProperty(key);active=raw?JSON.parse(raw):null;if(!active)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};if(active.status==='COMPLETED')return {ok:true,duplicate:true};
     var st=examFindStudent_(active.sbd);if(!st)return {ok:false,message:'Không tìm thấy học viên khi lưu kết quả.'};
-    var sh=examEnsureSheets_().results, end=new Date(), result=detail||{}, all=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues():[], resultRow=-1;
-    for(var ri=0;ri<all.length;ri++)if(String(all[ri][0])===String(examId)){resultRow=ri+2;break;}
-    if(resultRow<0){sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,(String(result.result||'').toUpperCase()==='LOAI_TRUC_TIEP'?'KHONG DAT - LOAI TRUC TIEP':(result.result||'HOAN_THANH')),JSON.stringify(result).slice(0,45000)]);}else{sh.getRange(resultRow,7,1,3).setValues([[end,(String(result.result||'').toUpperCase()==='LOAI_TRUC_TIEP'?'KHONG DAT - LOAI TRUC TIEP':(result.result||'HOAN_THANH')),JSON.stringify(result).slice(0,45000)]]);}
+    var sh=examEnsureSheets_().results,end=new Date(),result=detail||{},resultRow=examFindResultRow_(sh,examId),oldDetail={};
+    if(resultRow>0){try{oldDetail=JSON.parse(sh.getRange(resultRow,9).getValue()||'{}');}catch(e){oldDetail={};}}
+    var merged=examMergeDetail_(oldDetail,result);
+    merged.result=String(result.result||merged.result||'HOAN_THANH');
+    merged.completedAt=result.completedAt||end.toISOString();
+    if(String(merged.result).toUpperCase()==='LOAI_TRUC_TIEP'){
+      merged.directFail=true;
+      merged.directFailReason=merged.directFailReason||result.reason||result.directFailReason||'Lỗi loại trực tiếp';
+      merged.directFailCourse=merged.directFailCourse||result.course||'';
+      merged.score=0;
+    }
+    var outcome=String(merged.result).toUpperCase()==='LOAI_TRUC_TIEP'?'KHONG DAT - LOAI TRUC TIEP':(result.result||'HOAN_THANH');
+    var json=examSerializeDetail_(merged);
+    if(resultRow<0){sh.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,active.startedAt,end,outcome,json]);}
+    else{sh.getRange(resultRow,6,1,4).setValues([[sh.getRange(resultRow,6).getValue()||active.startedAt,end,outcome,json]]);}
     var cT=st.statusCol;if(cT<0){cT=st.headers.length;st.sh.getRange(1,cT+1).setValue('TRANG_THAI_THI');}
     st.sh.getRange(st.row,cT+1).setValue('DA THI');
     var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(end);
     var cBy=examCol_(st.headers,['CAPNHATBOI']);if(cBy>=0)st.sh.getRange(st.row,cBy+1).setValue(sess.taiKhoan);
-    active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,status:'DA THI'};
+    active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,status:'DA THI',eventsSaved:(merged.events||[]).length,directFail:!!merged.directFail};
   }finally{lock.releaseLock();}
 }
 function examProgress_(token,examId,detail){
@@ -721,11 +788,34 @@ function examProgress_(token,examId,detail){
   if(!raw)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};
   var active=JSON.parse(raw);if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};
   if(active.status!=='RUNNING')return {ok:false,message:'Lượt thi đã kết thúc.'};
-  var ss=examEnsureSheets_(),sh=ss.results,rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues():[],row=-1;
-  for(var i=0;i<rows.length;i++)if(String(rows[i][0])===String(examId)){row=i+2;break;}
-  if(row<0)return {ok:false,message:'Thiếu bản ghi lượt thi.'};
-  var d=detail||{};sh.getRange(row,9).setValue(JSON.stringify(d).slice(0,45000));sh.getRange(row,8).setValue('DANG THI - DANG CAP NHAT');
-  active.lastProgressAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true};
+  var lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    raw=props.getProperty(key);active=raw?JSON.parse(raw):null;if(!active||active.status!=='RUNNING')return {ok:false,message:'Lượt thi đã kết thúc.'};
+    var sh=examEnsureSheets_().results,row=examFindResultRow_(sh,examId);if(row<0)return {ok:false,message:'Thiếu bản ghi lượt thi.'};
+    var old={};try{old=JSON.parse(sh.getRange(row,9).getValue()||'{}');}catch(e){old={};}
+    var merged=examMergeDetail_(old,detail||{});var json=examSerializeDetail_(merged);
+    sh.getRange(row,9).setValue(json);sh.getRange(row,8).setValue('DANG THI - DANG CAP NHAT');
+    active.lastProgressAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,eventsSaved:(merged.events||[]).length};
+  }finally{lock.releaseLock();}
+}
+function examLogEvent_(token,examId,event){
+  var sess=examSession_(token);if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
+  var props=PropertiesService.getScriptProperties(),key='EXAM_ACTIVE_'+String(examId||''),raw=props.getProperty(key);
+  if(!raw)return {ok:false,message:'Không tìm thấy lượt thi đang hoạt động.'};
+  var active=JSON.parse(raw);if(active.teacher!==sess.taiKhoan)return {ok:false,message:'Lượt thi không thuộc giáo viên hiện tại.'};
+  if(active.status!=='RUNNING')return {ok:false,message:'Lượt thi đã kết thúc.'};
+  var lock=LockService.getScriptLock();lock.waitLock(10000);
+  try{
+    raw=props.getProperty(key);active=raw?JSON.parse(raw):null;if(!active||active.status!=='RUNNING')return {ok:false,message:'Lượt thi đã kết thúc.'};
+    var sh=examEnsureSheets_().results,row=examFindResultRow_(sh,examId);if(row<0)return {ok:false,message:'Thiếu bản ghi lượt thi.'};
+    var old={};try{old=JSON.parse(sh.getRange(row,9).getValue()||'{}');}catch(e){old={};}
+    var ev=event&&typeof event==='object'?event:{};if(!ev.eventId)ev.eventId=Utilities.getUuid();
+    var merged=examMergeDetail_(old,{events:[ev],lastUpdate:new Date().toISOString()});
+    if(ev.directFail){merged.directFail=true;merged.directFailReason=merged.directFailReason||ev.message||ev.faultText||ev.type||'Lỗi loại trực tiếp';merged.directFailCourse=merged.directFailCourse||ev.course||'';merged.score=0;}
+    sh.getRange(row,9).setValue(examSerializeDetail_(merged));
+    active.lastEventAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));
+    return {ok:true,eventSaved:true,eventsSaved:(merged.events||[]).length};
+  }finally{lock.releaseLock();}
 }
 function examAdminReset_(token,sbd){
   var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được mở khóa học viên.'};
@@ -736,6 +826,27 @@ function examAdminReset_(token,sbd){
     return {ok:true,message:'Đã mở khóa học viên '+st.sbd+'. Kết quả thi cũ được giữ nguyên.'};
   }finally{lock.releaseLock();}
 }
+function examAdminListResults_(token, query){
+  var sess=examSession_(token);
+  if(!sess || String(sess.quyen||'').toUpperCase()!=='ADMIN') return {ok:false,message:'Chỉ ADMIN mới được xem kết quả thi.'};
+  var sh=examEnsureSheets_().results;
+  var last=sh.getLastRow();
+  if(last<2) return {ok:true,results:[]};
+  var values=sh.getRange(2,1,last-1,9).getDisplayValues();
+  var q=String(query||'').trim().toUpperCase();
+  var out=values.map(function(r){
+    var detail={}; try{detail=JSON.parse(r[8]||'{}');}catch(e){}
+    var events=Array.isArray(detail.events)?detail.events:[];
+    var score=(typeof detail.score==='number')?detail.score:(detail.directFail?0:null);
+    var errors=events.filter(function(ev){return ev && (ev.isError || ev.errorCategory || ev.penalty || ev.directFail || ev.loaiTrucTiep || /ERROR|FAULT|LOI|WRONG|NO_GHEP|TIMEOUT|QUA_VI_TRI|CHUA_DEN|DIRECT.?FAIL|LOAI.?TRUC.?TIEP/i.test(String(ev.type||ev.event||ev.code||'')));}).map(function(ev){
+      return {time:ev.time||ev.at||ev.timestamp||'',course:ev.course||'',type:ev.type||ev.event||ev.code||'',message:ev.message||ev.faultText||ev.errorText||ev.reason||'',penalty:Number(ev.penalty||0),directFail:!!ev.directFail};
+    });
+    return {examId:r[0],sbd:r[1],hoTen:r[2],cccd:r[3],giaoVien:r[4],batDau:r[5],ketThuc:r[6],ketQua:r[7],score:score,events:events,errors:errors,detail:detail};
+  }).filter(function(x){return !q || [x.examId,x.sbd,x.hoTen,x.giaoVien,x.ketQua].join(' ').toUpperCase().indexOf(q)>=0;});
+  out.reverse();
+  return {ok:true,results:out.slice(0,1000)};
+}
+
 function examAdminList_(token){
   var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được xem danh sách.'};
   var sh=examEnsureSheets_().roster,h=examHeaders_(sh),cS=examCol_(h,['SBD','SOBDANH','SOBAODANH','MAHOCVIEN','CCCD']),cN=examCol_(h,['HOTEN','HOVATEN','TENHOCVIEN','TEN']),cT=examCol_(h,['TRANGTHAITHI','TRANGTHAI']);if(cS<0)return {ok:false,message:'Thiếu cột SBD.'};
@@ -763,10 +874,14 @@ function doPost(e) {
       result=examComplete_(String(body.token||''),String(body.examId||''),body.result||{});
     }else if(action==='examprogress'){
       result=examProgress_(String(body.token||''),String(body.examId||''),body.detail||{});
+    }else if(action==='logexamevent'){
+      result=examLogEvent_(String(body.token||''),String(body.examId||''),body.event||{});
     }else if(action==='adminresetstudent'){
       result=examAdminReset_(String(body.token||''),String(body.sbd||''));
     }else if(action==='adminliststudents'){
       result=examAdminList_(String(body.token||''));
+    }else if(action==='adminlistresults'){
+      result=examAdminListResults_(String(body.token||''),String(body.query||''));
     }else{
       result={ok:false,message:'ACTION_KHONG_HOP_LE'};
     }
@@ -774,4 +889,65 @@ function doPost(e) {
   }catch(err){
     return ContentService.createTextOutput(JSON.stringify({success:false,ok:false,message:String(err&&err.message||err)})).setMimeType(ContentService.MimeType.JSON);
   }
+}
+
+
+
+
+/* ===== V2.1.14: API quản trị kết quả dùng trong cùng dự án Apps Script ===== */
+function adminLoginForResults(username, password) {
+  var r = teacherLogin(String(username || ''), String(password || ''));
+  if (!r || !r.ok) return {ok:false, message:(r && r.message) || 'Đăng nhập thất bại.'};
+  var token = r.token || (r.data && r.data.token);
+  if (!token) return {ok:false, message:'Không nhận được phiên đăng nhập.'};
+  var v = validateSession(token);
+  var teacher = v && (v.teacher || v.data && v.data.teacher);
+  if (!v || !v.ok || !teacher || String(teacher.quyen || '').toUpperCase() !== 'ADMIN') {
+    try { logout(token); } catch (e) {}
+    return {ok:false, message:'Chỉ tài khoản ADMIN được truy cập trang quản lý kết quả.'};
+  }
+  return {ok:true, token:token};
+}
+function adminValidateForResults(token) {
+  var v = validateSession(String(token || ''));
+  if (!v || !v.ok) return {ok:false, message:(v && v.message) || 'Phiên đăng nhập hết hạn.'};
+  var teacher = v.teacher || (v.data && v.data.teacher);
+  if (!teacher || String(teacher.quyen || '').toUpperCase() !== 'ADMIN') return {ok:false, message:'Chỉ ADMIN được truy cập.'};
+  return {ok:true, teacher:teacher};
+}
+function adminListResultsForResults(token, query) {
+  var v = adminValidateForResults(token);
+  if (!v.ok) return v;
+  return examAdminListResults_(String(token || ''), String(query || ''));
+}
+function adminLogoutForResults(token) {
+  return logout(String(token || ''));
+}
+
+
+
+/** ADMIN: chỉnh điểm thủ công và lưu vào CHI_TIET_JSON của lượt thi. */
+function adminEditResultScoreForResults(token, examId, newScore) {
+  var v = adminValidateForResults(token);
+  if (!v || !v.ok) return {ok:false, message:(v && v.message) || 'Chỉ ADMIN được sửa điểm.'};
+  var score = Number(newScore);
+  if (!isFinite(score) || score < 0 || score > 100) return {ok:false, message:'Điểm phải nằm trong khoảng 0 đến 100.'};
+  if (Math.round(score * 100) !== score * 100) return {ok:false, message:'Điểm chỉ được tối đa 2 chữ số thập phân.'};
+  examId = String(examId || '').trim();
+  if (!examId) return {ok:false, message:'Thiếu mã lượt thi.'};
+  var sh = examEnsureSheets_().results;
+  if (sh.getLastRow() < 2) return {ok:false, message:'Chưa có kết quả thi.'};
+  var ids = sh.getRange(2,1,sh.getLastRow()-1,1).getDisplayValues();
+  var row = -1;
+  for (var i=0; i<ids.length; i++) if (String(ids[i][0]) === examId) { row = i + 2; break; }
+  if (row < 0) return {ok:false, message:'Không tìm thấy mã lượt thi.'};
+  var raw = sh.getRange(row,9).getDisplayValue();
+  var detail = {};
+  try { detail = JSON.parse(raw || '{}') || {}; } catch (e) { detail = {rawDetail:raw}; }
+  detail.score = score;
+  detail.adminEditedScore = true;
+  detail.adminEditedBy = String(v.teacher && (v.teacher.taiKhoan || v.teacher.maGV) || 'ADMIN');
+  detail.adminEditedAt = new Date().toISOString();
+  sh.getRange(row,9).setValue(JSON.stringify(detail).slice(0,45000));
+  return {ok:true, score:score, message:'Đã cập nhật điểm vào Google Sheets.'};
 }
