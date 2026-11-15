@@ -1387,7 +1387,7 @@ class CourseRule{
 }
 
 class ExamEngine{
- constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false;this.total18Expired=false;this.total18NextReminderAt=0;}
+ constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false; this.tag141ResetAt=0; this.tag141ResetDone=false;this.total18Expired=false;this.total18NextReminderAt=0;this.ktAutoResetDone=false;}
  startTotal18(){
    if(this.total18StartAt||this.tag141Seen)return false;
    const startAt=performance.now();
@@ -1401,7 +1401,7 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);if(key==='KT')this.ktAutoResetDone=false;this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());
     showPositionConfirm(isPositionRuleCourse(key),key);
     $('positionMonitor')?.classList.add('hidden');
     event('COURSE_ANNOUNCED',{course:key,tag:id,positionAdminButtonVisible:isPositionRuleCourse(key)});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
@@ -1441,21 +1441,17 @@ class ExamEngine{
    // B08/B12: không mở khóa TAG lần 2 chỉ vì thấy TAG khác hoặc mất 1 frame.
    // Việc xác nhận TAG lần 1 đã rời khung được debounce trong update().
    if(id===141){
-     const wasExpired=this.total18Expired;
-     this.tag141Seen=true;
-     this.total18NextReminderAt=0;
-     stopTotal18Ticker();
-     event('TAG_141_SEEN',{
-       atMs:Math.max(0,t-(this.total18StartAt||t)),
-       before18Min:!this.total18DeadlineAt||t<=this.total18DeadlineAt,
-       after18Min:wasExpired
-     });
-     if(wasExpired){
-       set('status','✅ ĐÃ THẤY TAG 141 — DỪNG NHẮC QUÁ TỔNG THỜI GIAN');
-       event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
-     }
-   }
-this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){
+      const wasExpired=this.total18Expired;
+      this.tag141Seen=true;
+      this.total18NextReminderAt=0;
+      this.tag141ResetAt=t+3000;
+      this.tag141ResetDone=false;
+      stopTotal18Ticker();
+      event('TAG_141_SEEN',{atMs:Math.max(0,t-(this.total18StartAt||t)),before18Min:!this.total18DeadlineAt||t<=this.total18DeadlineAt,after18Min:wasExpired,autoResetDelayMs:3000,audioIndependent:true});
+      set('status','ĐÃ NHẬN TAG 141 — TỰ ĐỘNG RESET SAU 3 GIÂY');
+      if(wasExpired) event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
+    }
+    this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret=this.current.process(id,d.area,true,d.center,t);if(this.current.d.check===id||COURSE_DEFS[key].check===id){
       const cfg=getPositionTagStability(key);
       const moved=this.lastCx<0?0:Math.hypot(d.center.x-this.lastCx,d.center.y-this.lastCy);
       const ad=Math.abs(d.area-this.lastArea);
@@ -1473,39 +1469,14 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret
    if(this.current.is_finished){
      const finished=this.current.key;
      if(finished==='KT'){
-       this.result='COMPLETED';
-       this.totalElapsed=Date.now()-this.startedAt;
-       event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED'});
-       set('status','🏆 HOÀN THÀNH SA HÌNH — SẴN SÀNG NHẬN TAG 01');
-       alertMsg('🏆 HOÀN THÀNH SA HÌNH',5000);
-       set('course','CHỜ TAG 01');
-       hideSecondaryTimer();
-       set('timer','00:00');set('courseTimer','--');
-       set('totalTimer','18:00');set('totalTimerBig','18:00');set('totalClockHint','Bắt đầu khi phát báo bài B01');
-       // RESET ALL sau khi âm thanh kết thúc đã phát đủ: làm sạch toàn bộ trạng thái
-       // từng bài và trạng thái vòng thi; giữ camera để nhận TAG 01 cho vòng mới.
-       this.rules.forEach(rule=>rule.reset());
-       this.current=null;
-       this.result='RUNNING';
-       this.index=-1; this.lastAnnounce=-1; this.lastChecked=-1;
-       this.lastCx=-1; this.lastCy=-1; this.lastArea=0; this.stableAt=0;
-       this.tag141Seen=false; this.total18StartAt=0; this.total18DeadlineAt=0;
-       this.total18Expired=false; this.total18NextReminderAt=0;
-       this.startedAt=Date.now(); this.initAtForCommand=this.startedAt; this.totalElapsed=0;
-       this.emergencyTriggered=false; this.emergencyPendingAt=0;
-       // Chặn TAG 141 còn nằm trong khung hình kích hoạt lặp lại ngay sau reset.
-       this.tagLockUntil=t+2500;
-       if(activeExamMode==='practice'){this.emergencySpot=this.nextEmergencySpot();}
-       stopTotal18Ticker();
-       hideSecondaryTimer();
-       set('course','CHỜ TAG 01'); set('tag','--');
-       set('timer','00:00'); set('stable','0.0s'); set('courseTimer','--');
-       set('totalTimer','18:00'); set('totalTimerBig','18:00');
-       set('totalClockHint','Bắt đầu khi phát báo bài B01');
-       showPositionConfirm(false);
-       event('RESET_ALL_AFTER_TAG_141',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,allCourseRulesReset:true,tagLockMs:2500,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null});
-       event('AUTO_RESET_AFTER_KT',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null,practiceOutOfOrderAllowed:activeExamMode==='practice'});
-     }else{
+        this.result='COMPLETED';
+        this.totalElapsed=Date.now()-this.startedAt;
+        event('EXAM_COMPLETED',{elapsedMs:this.totalElapsed,result:'COMPLETED',trigger:'TAG_141_DETECTED'});
+        set('status','ĐÃ NHẬN TAG 141 — ĐANG CHỜ RESET 3 GIÂY');
+        set('course','KT');
+        hideSecondaryTimer();
+        set('courseTimer','--');
+      
        set('status',this.current.result==='PASS'?'ĐẠT — TIẾP TỤC BÀI TIẾP THEO':'CÓ LỖI — TIẾP TỤC BÀI TIẾP THEO');
        if(finished==='b01' && this.total18StartAt && !this.tag141Seen){
          // TAG 111 chỉ kết thúc B01, tuyệt đối không kết thúc bộ đếm 18 phút.
@@ -1517,7 +1488,30 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret
      }
    }
  }
+  finalizeKTAfterAudio(t=performance.now()){ return false; }
+  resetAfterTag141(t=performance.now()){
+    if(this.tag141ResetDone || !this.tag141Seen) return false;
+    this.tag141ResetDone=true; this.tag141ResetAt=0;
+    this.rules.forEach(rule=>rule.reset());
+    this.current=null; this.result='RUNNING';
+    this.index=-1; this.lastAnnounce=-1; this.lastChecked=-1;
+    this.lastCx=-1; this.lastCy=-1; this.lastArea=0; this.stableAt=0;
+    this.tag141Seen=false;
+    this.total18StartAt=0; this.total18DeadlineAt=0; this.total18Expired=false; this.total18NextReminderAt=0;
+    this.startedAt=Date.now(); this.initAtForCommand=this.startedAt; this.totalElapsed=0;
+    this.emergencyTriggered=false; this.emergencyPendingAt=0; this.tagLockUntil=t+2500;
+    if(activeExamMode==='practice') this.emergencySpot=this.nextEmergencySpot();
+    stopTotal18Ticker(); hideSecondaryTimer();
+    set('course','CHỜ TAG 01'); set('tag','--'); set('timer','00:00'); set('stable','0.0s'); set('courseTimer','--');
+    set('totalTimer','18:00'); set('totalTimerBig','18:00'); set('totalClockHint','Bắt đầu khi phát báo bài B01');
+    showPositionConfirm(false);
+    event('RESET_ALL_AFTER_TAG_141',{nextCourse:'b01',nextTag:1,cameraKept:true,timersReset:true,allCourseRulesReset:true,tagLockMs:2500,trigger:'TAG_141_PLUS_3000MS',audioIndependent:true,thkcNextRound:activeExamMode==='practice'?this.emergencySpot:null});
+    event('AUTO_RESET_AFTER_KT',{nextCourse:'b01',nextTag:1,trigger:'TAG_141_PLUS_3000MS',audioIndependent:true});
+    set('status','ĐÃ RESET VÒNG THI — CHỜ TAG 01'); alertMsg('ĐÃ TỰ ĐỘNG RESET — CHỜ TAG 01',3000);
+    return true;
+  }
  update(t,detectedTagIds=[]){
+    if(this.tag141Seen && this.tag141ResetAt>0 && t>=this.tag141ResetAt){ this.resetAfterTag141(t); return; }
    if(this.result!=='RUNNING')return;
    if(this.emergencyPendingAt&&t>=this.emergencyPendingAt&&!this.emergencyTriggered){
      this.emergencyPendingAt=0;this.emergencyTriggered=true;this.tagLockUntil=t+10000;
@@ -1639,6 +1633,7 @@ this.announce(id,t);if(!this.current)return;const key=this.current.key;const ret
    }else{
      hideSecondaryTimer();
    }
+   // KT hoàn tất bất đồng bộ sau khi MP3 kết thúc; không đợi camera nhận TAG khác.
  }
 }
 function fmtTotal18Countdown(deadlineMs, nowMs){
