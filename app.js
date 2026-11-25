@@ -1193,8 +1193,8 @@ class CourseRule{
   return 'WAITING';
 }
  kt(tag,visible,t){
-  // BÀI 14 / KT: TAG 14 -> baobai.mp3 (init), TAG 141 -> batdau.mp3.
-  // Sau đúng 3 giây kể từ lúc nhận TAG 141, phát hoanthanh.mp3 2 lần liên tiếp.
+  // BÀI 14 / KT: TAG 141 bắt đầu kết thúc. Reset tổng thể do ExamEngine
+  // điều khiển độc lập sau 3 giây; âm thanh không được phép khóa luồng reset.
   if(this.state===0&&this.matchesStart(tag)&&visible){
     this.startedAt=t;
     this.state=1;
@@ -1213,24 +1213,18 @@ class CourseRule{
   if(this.state===1&&t>=this.ktFinishAt&&!this.ktFinishStarted&&!this.ktFinalizing){
     this.ktFinishStarted=true;
     this.ktFinalizing=true;
-    set('status','KT — PHÁT HOÀN THÀNH 2 LẦN');
-    event('KT_HOANTHANH_START',{afterMs:Math.round(t-this.ktBatdauAt),repeat:2,audio:'hoanthanh.mp3'});
+    event('KT_HOANTHANH_START',{afterMs:Math.round(t-this.ktBatdauAt),repeat:2,audio:'hoanthanh.mp3',resetIndependent:true});
+    // Đánh dấu kết thúc ngay tại mốc 3 giây, không đợi MP3.
+    this.finish('FINAL','Hoàn thành sa hình');
+    this.state=2;
+    // Chỉ phát âm thanh thông báo; tuyệt đối không sửa trạng thái sau khi reset.
     (async()=>{
       const first=await playAndWait('KT','hoanthanh.mp3');
       event('KT_HOANTHANH_PLAY_1',{ok:first,audio:'./audio/KT/hoanthanh.mp3'});
       const second=await playAndWait('KT','hoanthanh.mp3');
       event('KT_HOANTHANH_PLAY_2',{ok:second,audio:'./audio/KT/hoanthanh.mp3'});
-      if(first&&second){
-        this.finish('FINAL','Hoàn thành sa hình');
-        this.state=2;
-        set('status','🏆 HOÀN THÀNH SA HÌNH');
-      }else{
-        this.ktFinalizing=false;
-        set('status','❌ Không phát đủ HOÀN THÀNH 2 lần');
-      }
     })().catch(err=>{
-      this.ktFinalizing=false;
-      reportAudioError('./audio/KT/hoanthanh.mp3',err,'Bài KT yêu cầu phát 2 lần');
+      event('KT_HOANTHANH_AUDIO_ERROR',{message:String(err?.message||err),resetIndependent:true});
     });
     return 'KT_FINISH_AUDIO';
   }
@@ -1387,7 +1381,7 @@ class CourseRule{
 }
 
 class ExamEngine{
- constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false; this.tag141ResetAt=0; this.tag141ResetDone=false;this.total18Expired=false;this.total18NextReminderAt=0;this.ktAutoResetDone=false;}
+ constructor(){this.rules=ORDER.map(k=>new CourseRule(k));this.ruleByKey=Object.fromEntries(this.rules.map(r=>[r.key,r]));this.current=null;this.index=-1;this.lastAnnounce=-1;this.lastChecked=-1;this.lastCx=-1;this.lastCy=-1;this.lastArea=0;this.stableAt=0;this.result='RUNNING';this.startedAt=Date.now();this.initAtForCommand=this.startedAt;this.events=[];this.emergencySpot=this.nextEmergencySpot();this.emergencyTriggered=false;this.emergencyPendingAt=0;this.tagLockUntil=0;this.totalElapsed=0;this.total18StartAt=0;this.total18DeadlineAt=0;this.tag141Seen=false; this.tag141ResetAt=0; this.tag141ResetDone=false; this.tag141Latched=false; this.tag141AbsentAt=0;this.total18Expired=false;this.total18NextReminderAt=0;this.ktAutoResetDone=false;}
  startTotal18(){
    if(this.total18StartAt||this.tag141Seen)return false;
    const startAt=performance.now();
@@ -1440,14 +1434,16 @@ class ExamEngine{
    }
    // B08/B12: không mở khóa TAG lần 2 chỉ vì thấy TAG khác hoặc mất 1 frame.
    // Việc xác nhận TAG lần 1 đã rời khung được debounce trong update().
-   if(id===141){
+   if(id===141&&!this.tag141Latched&&!this.tag141Seen){
       const wasExpired=this.total18Expired;
+      this.tag141Latched=true;
+      this.tag141AbsentAt=0;
       this.tag141Seen=true;
       this.total18NextReminderAt=0;
       this.tag141ResetAt=t+3000;
       this.tag141ResetDone=false;
       stopTotal18Ticker();
-      event('TAG_141_SEEN',{atMs:Math.max(0,t-(this.total18StartAt||t)),before18Min:!this.total18DeadlineAt||t<=this.total18DeadlineAt,after18Min:wasExpired,autoResetDelayMs:3000,audioIndependent:true});
+      event('TAG_141_SEEN',{atMs:Math.max(0,t-(this.total18StartAt||t)),before18Min:!this.total18DeadlineAt||t<=this.total18DeadlineAt,after18Min:wasExpired,autoResetDelayMs:3000,audioIndependent:true,oneShot:true});
       set('status','ĐÃ NHẬN TAG 141 — TỰ ĐỘNG RESET SAU 3 GIÂY');
       if(wasExpired) event('TOTAL18_REMINDER_STOP',{reason:'TAG_141_SEEN'});
     }
@@ -1511,6 +1507,13 @@ class ExamEngine{
     return true;
   }
  update(t,detectedTagIds=[]){
+    // Giữ latch khi TAG 141 còn trong hình; chỉ cho phép lượt mới sau khi TAG rời camera ổn định 500ms.
+    const tag141StillVisible=Array.isArray(detectedTagIds)&&detectedTagIds.some(id=>Number(id)===141);
+    if(this.tag141Latched){
+      if(tag141StillVisible)this.tag141AbsentAt=0;
+      else if(!this.tag141AbsentAt)this.tag141AbsentAt=t;
+      else if(t-this.tag141AbsentAt>=500){this.tag141Latched=false;this.tag141AbsentAt=0;event('TAG_141_LATCH_RELEASED',{absentMs:500});}
+    }
     if(this.tag141Seen && this.tag141ResetAt>0 && t>=this.tag141ResetAt){ this.resetAfterTag141(t); return; }
    if(this.result!=='RUNNING')return;
    if(this.emergencyPendingAt&&t>=this.emergencyPendingAt&&!this.emergencyTriggered){
