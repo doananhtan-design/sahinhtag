@@ -25,3 +25,19 @@ PATCH V2.30 — RESTORE BÀI 02, 03, 10 THEO V2.30
 - Sau khi TAG kiểm tra ổn định đủ thời gian, gọi checkTarget() như V2.30.
 - Bỏ nhánh confirmVehicleStationary() mới cho B02/B03/B10 và bỏ reset stop-candidate riêng của ba bài.
 - Giữ nguyên các phần khác của V2.30, bao gồm quy trình kết thúc TAG 141 / RESET ALL.
+
+
+CAP NHAT V2.30 — B08/B12 VA BAI 11 (2026-11-25)
+- B08/B12: qua 120 giay chi phat canh bao, khong khoa TAG 82/123; van cho TAG dung xe va TAG vao bai lan 2.
+- Bai 11: moc thoi gian lay ngay sau khi detector tra ket qua, giam sai so do thoi gian xu ly frame.
+- Khoang cach mac dinh B11 dong bo 30m theo baseline cu va giao dien; gia tri tuy chinh khac duoc giu. Gia tri 50m do migration V2.30 cu tu ghi se duoc chuyen ve 30m.
+- Nguong dat giu nguyen >=25 km/h; cong thuc: khoang cach thuc (m) / thoi gian TAG 112 den TAG 113 (s) * 3.6.
+
+
+CAP NHAT V2.30 — B08/B12 LUYEN TAP LAP TAG KHONG GIOI HAN (2026-11-25)
+- Trong che do Luyen tap, B08/B12 cho phep lap lai chu ky TAG dau (81/121) -> TAG kiem tra (82/123) -> TAG dau lan tiep theo khong gioi han.
+- Dong ho 120 giay chi bat dau mot lan tai lan dau tien nhan TAG dau cua bai trong phien.
+- Cac chu ky lap lai khong khoi dong lai, khong lam moi han 120 giay.
+- Het 120 giay phat canh bao mot lan; tiep tuc cho phep nhan TAG va luyen tap khong gioi han.
+- Thi chinh thuc giu nguyen quy trinh va gioi han 120 giay hien co.
+- Cache Service Worker duoc doi ten de trinh duyet tai bo app.js moi.

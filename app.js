@@ -451,7 +451,7 @@ const OFFICIAL_MINUS5_EVENTS=new Set(['POSITION_COMPARE','TIMED_WARNING_ONLY','P
 function isOfficialMinus5(type,data={}){
   const c=String(data.course||'').toLowerCase();
   if(type==='POSITION_COMPARE') return (['b02','b10'].includes(c)&&['QUA_VI_TRI','CHUA_DEN'].includes(String(data.result||'').toUpperCase()))||(c==='b03'&&String(data.result||'').toUpperCase()==='CHUA_DEN');
-  if(type==='SPEED_RESULT') return c==='b11'&&Number(data.speedKmh)<25;
+  if(type==='SPEED_RESULT') return c==='b11'&&Number(data.speedKmh)<(Number(data.effectiveMinSpeedKmh)||23.75);
   if(type==='TIMED_WARNING_ONLY') return ['b04','b06','b08','b12'].includes(c)&&Number(data.limitMs||120000)>=120000;
   if(type==='POSITION_RULE_120S_TIMEOUT') return ['b08','b12'].includes(c);
   if(type==='COURSE_COMPLETED') return ['b08','b12'].includes(c)&&String(data.result||'').toUpperCase()==='TIMEOUT';
@@ -564,9 +564,22 @@ function stopCamera(){if(video?.srcObject){video.srcObject.getTracks().forEach(t
 const LOCAL_VEHICLE_ID_KEY='sahinh_vehicle_local_id_v1';
 const POSITION_REFERENCE_PREFIX='sahinh_position_reference_v1_';
 const B11_DISTANCE_PREFIX='sahinh_b11_distance_v1_';
-const B11_DEFAULT_DISTANCE_M=50;
+const B11_DEFAULT_DISTANCE_M=30;
 const B11_DISTANCE_MIGRATION_KEY='sahinh_b11_distance_migrated_v218';
-try{if(localStorage.getItem(B11_DISTANCE_MIGRATION_KEY)!=='1'){localStorage.setItem(getB11DistanceKey(), '50');localStorage.setItem(B11_DISTANCE_MIGRATION_KEY,'1');}}catch(_){}
+const B11_DISTANCE_MIGRATION_V230_KEY='sahinh_b11_distance_migrated_v230';
+try{
+  const distanceKey=getB11DistanceKey();
+  if(!localStorage.getItem(B11_DISTANCE_MIGRATION_KEY)){
+    if(!localStorage.getItem(distanceKey)) localStorage.setItem(distanceKey,String(B11_DEFAULT_DISTANCE_M));
+    localStorage.setItem(B11_DISTANCE_MIGRATION_KEY,'1');
+  }
+  // Chạy đúng một lần: V2.30 cũ đã tự ghi mặc định 50m, trái baseline 30m/UI 30m.
+  // Sau lần chuyển này, mọi giá trị do giáo viên tự lưu (kể cả 50m) đều được giữ.
+  if(localStorage.getItem(B11_DISTANCE_MIGRATION_V230_KEY)!=='1'){
+    if(Number(localStorage.getItem(distanceKey))===50) localStorage.setItem(distanceKey,String(B11_DEFAULT_DISTANCE_M));
+    localStorage.setItem(B11_DISTANCE_MIGRATION_V230_KEY,'1');
+  }
+}catch(_){}
 
 function getB11DistanceKey(vehicleId=getLocalVehicleId()){
   return `${B11_DISTANCE_PREFIX}${vehicleId}`;
@@ -773,7 +786,7 @@ function capturePositionReference(){
   showPositionConfirm(false);
 }
 class CourseRule{
- constructor(key){this.key=key;this.d={...COURSE_DEFS[key]};this.reset()}
+ constructor(key){this.key=key;this.d={...COURSE_DEFS[key]};this.practiceRepeatFirstStartAt=0;this.practiceRepeat120DeadlineAt=0;this.practiceRepeat120Warned=false;this.reset()}
  reset(){
   this.state=0;
   this.is_finished=false;
@@ -811,6 +824,8 @@ class CourseRule{
   this.ktFinalizing=false;
   this.checkAudioPlayed=false;
   this.checkAudioPending=false;
+  this.practiceRepeatBlockedStart=false;
+  this.practiceRepeatClearAt=0;
   this.positionReferenceTag=0;
   this.positionResult=null;
   this.positionCorrect=false;
@@ -1050,6 +1065,17 @@ class CourseRule{
    if(this.is_finished||this.repeatStartDone||this.repeatSequenceStep===4)return 'FINISHED';
    const exactStartTag=(tag===this.d.start);
    const exactCheckTag=(tag===this.d.check);
+   // Luyện tập: sau mỗi chu kỳ hoàn thành, chờ TAG vào bài rời khung hình
+   // trước khi cho phép bắt đầu chu kỳ kế tiếp, tránh nhận lặp cùng một lần quét.
+   if(activeExamMode==='practice'&&this.practiceRepeatBlockedStart){
+     if(exactStartTag&&visible){this.practiceRepeatClearAt=0;return 'WAITING';}
+     if(!this.practiceRepeatClearAt)this.practiceRepeatClearAt=t;
+     if(t-this.practiceRepeatClearAt<800)return 'WAITING';
+     this.practiceRepeatBlockedStart=false;
+     this.practiceRepeatClearAt=0;
+     set('status',`${this.key.toUpperCase()} — SẴN SÀNG LẶP LẠI — CHỜ TAG ${this.d.start}`);
+     event('PRACTICE_REPEAT_READY',{course:this.key,startTag:this.d.start,unlimited:true});
+   }
 
    // B08/B12: KHÔNG kiểm tra vị trí. TAG kiểm tra chỉ dùng để phát DỪNG XE.
    // Sau TAG vào bài lần 1, bộ đếm 120s chờ TAG vào bài lần 2.
@@ -1061,10 +1087,24 @@ class CourseRule{
      this.repeatSequenceStep=1; // 1=TAG vào bài lần 1, 2=TAG dừng xe, 3=TAG vào bài lần 2/kết thúc
      this.repeatStartWaitingReturn=true;
      this.repeatStartAt=t;
-     this.repeatStartDeadlineAt=t+120000;
+     // Luyện tập B08/B12: 120 giây chỉ bắt đầu đúng một lần,
+     // tại lần đầu tiên nhận TAG 81/121 trong phiên của bài.
+     // Các chu kỳ lặp sau vẫn nhận TAG không giới hạn nhưng không khởi động lại 120s.
+     if(activeExamMode==='practice'){
+       if(!this.practiceRepeatFirstStartAt){
+         this.practiceRepeatFirstStartAt=t;
+         this.practiceRepeat120DeadlineAt=t+120000;
+         this.practiceRepeat120Warned=false;
+         event('PRACTICE_REPEAT_FIRST_START_TIMER',{course:this.key,startTag:tag,deadlineMs:120000,startsOnce:true});
+       }
+       this.repeatStartDeadlineAt=this.practiceRepeat120Warned?0:this.practiceRepeat120DeadlineAt;
+       this.repeat120Active=this.repeatStartDeadlineAt>t;
+     }else{
+       this.repeatStartDeadlineAt=t+120000;
+       this.repeat120Active=true;
+     }
      this.repeatStartDone=false;
      this.repeatStartLastSeenAt=t;
-     this.repeat120Active=true;
      this.checkAudioPlayed=false;
      this.checkAudioPending=false;
      this.checkAudioRetryAt=0;
@@ -1158,6 +1198,35 @@ class CourseRule{
        });
        set('status',`${this.key.toUpperCase()} — TAG ${tag} LẦN 2 — ĐÃ DỪNG ĐỒNG HỒ 120s`);
        event('REPEAT_SEQUENCE_STEP',{course:this.key,step:3,tag,meaning:'TAG vào bài lần 2 đã dừng đồng hồ 120 giây; không phát hoanthanh.mp3'});
+       if(activeExamMode==='practice'){
+         // Luyện tập B08/B12 không giới hạn số lần: hoàn tất một chu kỳ rồi
+         // đưa riêng quy tắc bài về trạng thái chờ TAG đầu, không kết thúc lượt luyện tập.
+         event('PRACTICE_REPEAT_CYCLE_COMPLETED',{course:this.key,cycleStartTag:this.d.start,checkTag:this.d.check,unlimited:true});
+         // Reset trạng thái chu kỳ nhưng giữ nguyên đồng hồ 120s tính từ
+         // TAG 81/121 đầu tiên của bài trong phiên luyện tập này.
+         const firstStartAt=this.practiceRepeatFirstStartAt;
+         const firstDeadline=this.practiceRepeat120DeadlineAt;
+         const firstWarned=this.practiceRepeat120Warned;
+         const timerActive=this.repeat120Active;
+         this.reset();
+         this.practiceRepeatFirstStartAt=firstStartAt;
+         this.practiceRepeat120DeadlineAt=firstDeadline;
+         this.practiceRepeat120Warned=firstWarned;
+         this.repeatStartDeadlineAt=firstDeadline;
+         this.repeat120Active=!!timerActive&&!firstWarned;
+         this.practiceRepeatBlockedStart=true;
+         this.practiceRepeatClearAt=0;
+         if(this.repeat120Active){
+           const remain=Math.max(0,firstDeadline-performance.now());
+           set('courseTimer',`${Math.ceil(remain/1000)}s`);
+           showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remain,`${this.key.toUpperCase()} — thời gian tính từ TAG đầu tiên; chu kỳ TAG được lặp không giới hạn`);
+         }else{
+           set('courseTimer','--');
+           hideSecondaryTimer();
+         }
+         set('status',`${this.key.toUpperCase()} — HOÀN THÀNH 1 LƯỢT — CHỜ TAG ${this.d.start} RỜI KHUNG ĐỂ LẶP LẠI`);
+         return 'PRACTICE_REPEAT_READY';
+       }
        this.finish('PASS',`${this.key.toUpperCase()} — đã nhận TAG vào bài lần 2`);
        return 'TIMER_STOP_NO_AUDIO';
      }
@@ -1182,11 +1251,15 @@ class CourseRule{
     const duration=Math.max(.1,(t-this.startedAt)/1000);
     const speed=(this.distanceMeters/duration)*3.6;
     const speedKmh=Number(speed.toFixed(1));
-    this.result=speed>=25?'PASS':'LOW_SPEED';
-    this.audio(speed>=25?'tunv.mp3':'thieutoc.mp3',speed>=25?'Tunv':'Sai tốc độ quy định');
+    const requiredSpeedKmh=25;
+    const speedTolerancePercent=5;
+    const effectiveMinSpeedKmh=requiredSpeedKmh*(1-speedTolerancePercent/100);
+    const speedPass=speed>=effectiveMinSpeedKmh;
+    this.result=speedPass?'PASS':'LOW_SPEED';
+    this.audio(speedPass?'tunv.mp3':'thieutoc.mp3',speedPass?'Tunv':'Sai tốc độ quy định');
     set('status',`B11 — TAG 113 · ${this.distanceMeters} m · ${speedKmh} km/h`);
-    event('SPEED_RESULT',{course:'b11',startTag:112,endTag:113,distanceMeters:Number(this.distanceMeters),speedKmh,duration:Number(duration.toFixed(2)),vehicleId:getLocalVehicleId(),thresholdKmh:25,formula:'distance_m / elapsed_s * 3.6',appVersion:DEPLOY_VERSION,storage:'localStorage'});
-    this.finish(this.result,speed>=25?'Đạt tốc độ':'Sai tốc độ');
+    event('SPEED_RESULT',{course:'b11',startTag:112,endTag:113,distanceMeters:Number(this.distanceMeters),speedKmh,duration:Number(duration.toFixed(2)),vehicleId:getLocalVehicleId(),thresholdKmh:requiredSpeedKmh,tolerancePercent:speedTolerancePercent,effectiveMinSpeedKmh,formula:'distance_m / elapsed_s * 3.6',appVersion:DEPLOY_VERSION,storage:'localStorage'});
+    this.finish(this.result,speedPass?`Đạt tốc độ (sai số ${speedTolerancePercent}%)`:`Sai tốc độ (dưới ${effectiveMinSpeedKmh.toFixed(2)} km/h)`);
     this.state=2;
     return 'SPEED_DONE';
   }
@@ -1578,9 +1651,16 @@ class ExamEngine{
      showSecondaryTimer('⏱ THỜI GIAN PHỤ — 120 GIÂY',remainRepeat,`${this.current.key.toUpperCase()} — chờ TAG ${this.current.d.check}, sau đó TAG ${this.current.d.start} lần 2`);
      if(remainRepeat<=0&&!this.current.is_finished){
        this.current.audio('quatg1.mp3');
-       this.current.repeatStartDone=true;
+       // Quá 120s chỉ là cảnh báo, KHÔNG khóa luồng xử lý TAG 82/123.
+       // repeatStartDone chỉ dùng cho trạng thái kết thúc thật sự; nếu bật ở đây,
+       // repeatTimedNoPosition() sẽ return FINISHED và TAG kiểm tra không phát DUNGXE.
+       this.current.repeatStartDone=false;
        this.current.repeatStartDeadlineAt=0;
        this.current.repeat120Active=false;
+       if(activeExamMode==='practice'){
+         this.current.practiceRepeat120Warned=true;
+         this.current.practiceRepeat120DeadlineAt=0;
+       }
        event('POSITION_RULE_120S_TIMEOUT',{
          course:this.current.key,
          startTag:this.current.d.start,
@@ -1797,14 +1877,17 @@ async function loop(t){
       if(workCanvas.height!==vh) workCanvas.height=vh;
       workCtx.drawImage(video,0,0,vw,vh);
       const detected=await adapter.detectFrame(workCanvas);
+      // Dùng timestamp ngay sau khi detector trả kết quả; t là mốc RAF trước
+      // thời gian xử lý ảnh nên có thể làm sai lệch phép đo thời gian TAG 112→113.
+      const detectedAt=performance.now();
       const detectedTagIds=Array.isArray(detected)?detected.map(d=>Number(d?.id)).filter(Number.isFinite):[];
       frameTagIds=detectedTagIds;
-      const ds=selectNearestTag(detected,t);
+      const ds=selectNearestTag(detected,detectedAt);
       drawDetections(ds);
       if(ds.length){
         set('tag',ds[0].id);
         set('status','🟢 NHẬN TAG GẦN NHẤT '+ds[0].id);
-        engine.handle(ds[0],t);
+        engine.handle(ds[0],detectedAt);
       }else{
         // Không được mở khóa TAG lần 2 chỉ vì 1 frame không nhận được TAG.
         // update() sẽ tự giải phóng sau 800ms mất TAG ổn định.
@@ -1817,7 +1900,7 @@ async function loop(t){
         const checkId=Number(current.d.check);
         const checkDetection=Array.isArray(detected)?detected.find(d=>Number(d?.id)===checkId):null;
         if(checkDetection && (!ds.length || Number(ds[0].id)!==checkId)){
-          current.process(checkId,Number(checkDetection.area)||0,true,checkDetection.center,t);
+          current.process(checkId,Number(checkDetection.area)||0,true,checkDetection.center,detectedAt);
           event('CHECK_TAG_SEEN_NON_NEAREST',{course:current.key,checkTag:checkId,nearestTag:ds[0]?.id??null});
         }
       }
@@ -1826,7 +1909,7 @@ async function loop(t){
       set('status','LỖI QUÉT TAG — '+(e.message||e.name||'Detector'));
     }finally{processing=false}
   }
-  if(engine){engine.update(t,frameTagIds);}
+  if(engine){engine.update(performance.now(),frameTagIds);}
   raf=requestAnimationFrame(loop);
 }
 
