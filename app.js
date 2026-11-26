@@ -1,5 +1,5 @@
 /* SA HÌNH AI — full browser/PWA port of the Python central loop + B01..B13 + KT + THKC. */
-const DEPLOY_VERSION='V2.30';
+const DEPLOY_VERSION='V3.1';
 const COURSE_DEFS={
  b01:{announce:1,start:111,backupStart:201,name:'Bài 01: Xuất phát',limit:20},
  b02:{announce:2,start:21,backupStart:202,check:22,name:'Bài 02: Dừng xe nhường đường',limit:120,areaMin:1781,areaMax:6781},
@@ -442,20 +442,51 @@ async function apiPost(body){
   return await r.json();
 }
 let officialProgressTicker=0, officialHardDeadline=0;
-function renderOfficialStudentInfo(){if(activeExamMode!=='official'||!selectedCandidate)return;const el=$('candidateInfo');if(!el)return;el.style.whiteSpace='pre-line';const remaining=officialHardDeadline?Math.max(0,Math.ceil((officialHardDeadline-Date.now())/1000)):null;const timer=remaining===null?'':`\nThời gian còn lại: ${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;el.textContent=`SBD: ${selectedCandidate.sbd||''}\nHọ và tên: ${selectedCandidate.hoTen||'Chưa có'}\nKhóa học: ${selectedCandidate.khoaHoc||'Chưa có'}\nNgày sinh: ${selectedCandidate.ngaySinh||'Chưa có'}\nSố CCCD: ${selectedCandidate.cccd||'Chưa có'}\nTrạng thái: ${officialExamLocked?'DA THI':(activeOfficialExamId?'DANG THI':(selectedCandidate.status||'CHUA THI'))}${timer}`;if(selectedCandidate.photoData){const img=document.createElement('img');img.src=selectedCandidate.photoData;img.alt='Ảnh chân dung học viên';img.className='official-candidate-photo';img.loading='eager';img.style.cssText='display:block;width:112px;height:140px;object-fit:cover;border:1px solid #cbd5e1;border-radius:8px;margin:10px 0';el.appendChild(img);}}
+function renderOfficialStudentInfo(){
+  if(activeExamMode!=='official'||!selectedCandidate)return;
+  const el=$('candidateInfo');
+  if(!el)return;
+  const remaining=officialHardDeadline?Math.max(0,Math.ceil((officialHardDeadline-Date.now())/1000)):null;
+  const timer=remaining===null?'':`\nThời gian còn lại: ${String(Math.floor(remaining/60)).padStart(2,'0')}:${String(remaining%60).padStart(2,'0')}`;
+  const lines=`SBD: ${selectedCandidate.sbd||''}\nHọ và tên: ${selectedCandidate.hoTen||'Chưa có'}\nKhóa học: ${selectedCandidate.khoaHoc||'Chưa có'}\nNgày sinh: ${selectedCandidate.ngaySinh||'Chưa có'}\nSố CCCD: ${selectedCandidate.cccd||'Chưa có'}\nTrạng thái: ${officialExamLocked?'DA THI':(activeOfficialExamId?'DANG THI':(selectedCandidate.status||'CHUA THI'))}${timer}`;
+  el.replaceChildren();
+  el.style.whiteSpace='normal';
+  const info=document.createElement('div');
+  info.className='candidate-info-text';
+  info.textContent=lines;
+  el.appendChild(info);
+  const photo=String(selectedCandidate.photoData||'').trim();
+  if(photo){
+    const wrap=document.createElement('div');
+    wrap.className='candidate-photo-wrap';
+    const img=document.createElement('img');
+    img.className='official-candidate-photo';
+    img.alt='Ảnh chân dung học viên';
+    img.loading='eager';
+    img.decoding='async';
+    img.src=photo;
+    img.onerror=()=>{wrap.replaceChildren();const msg=document.createElement('span');msg.className='candidate-photo-note';msg.textContent='Không tải được ảnh học viên. Vui lòng kiểm tra lại file ảnh trên Drive.';wrap.appendChild(msg);};
+    wrap.appendChild(img);
+    el.appendChild(wrap);
+  }else{
+    const note=document.createElement('div');
+    note.className='candidate-photo-note';
+    note.textContent='Hồ sơ tra cứu chưa trả về ảnh học viên.';
+    el.appendChild(note);
+  }
+}
 function stopOfficialProgress(){if(officialProgressTicker){clearInterval(officialProgressTicker);officialProgressTicker=0;}}
 function startOfficialProgress(){stopOfficialProgress();officialHardDeadline=Date.now()+18*60*1000;renderOfficialStudentInfo();renderOfficialScore();officialProgressTicker=setInterval(async()=>{renderOfficialStudentInfo();if(!activeOfficialExamId||!engine||officialExamLocked)return;if(Date.now()>=officialHardDeadline){event('EXAM_COMPLETED',{result:'TIME_LIMIT_18_MIN',elapsedMs:18*60*1000,autoEnded:true});return;}try{await apiPost({action:'examprogress',token:window.currentTeacher?.token,examId:activeOfficialExamId,detail:{result:'DANG THI - DANG CAP NHAT',elapsedMs:Math.max(0,18*60*1000-(officialHardDeadline-Date.now())),events:(engine?.events||[]).slice(-500),score:currentOfficialScore(),penaltyCount:countOfficialMinus5Events(engine?.events||[]),lastUpdate:new Date().toISOString()}});}catch(e){console.warn('Exam progress sync failed',e);}},10000);}
-const OFFICIAL_DIRECT_FAIL_EVENTS=new Set(['B01_TAG_111_TIMEOUT','B03_TIMEOUT_30S','B03_ROLLBACK','B03_NO_STOP_ON_RAMP','B08_NO_GHEP_XE','B12_NO_GHEP_XE','OFFICIAL_WRONG_SEQUENCE']);
+const OFFICIAL_DIRECT_FAIL_EVENTS=new Set(['B01_TAG_111_TIMEOUT','B03_TIMEOUT_30S','B03_ROLLBACK','B08_NO_GHEP_XE','B12_NO_GHEP_XE','OFFICIAL_WRONG_SEQUENCE']);
 function isOfficialDirectFail(type,data={}){return OFFICIAL_DIRECT_FAIL_EVENTS.has(type)||(type==='POSITION_COMPARE'&&String(data.course||'').toLowerCase()==='b03'&&String(data.result||'').toUpperCase()==='QUA_VI_TRI');}
 const OFFICIAL_MINUS5_EVENTS=new Set(['POSITION_COMPARE','TIMED_WARNING_ONLY','POSITION_RULE_120S_TIMEOUT','SPEED_RESULT','COURSE_COMPLETED']);
 function isOfficialMinus5(type,data={}){
   const c=String(data.course||'').toLowerCase();
   if(type==='POSITION_COMPARE') return (['b02','b10'].includes(c)&&['QUA_VI_TRI','CHUA_DEN'].includes(String(data.result||'').toUpperCase()))||(c==='b03'&&String(data.result||'').toUpperCase()==='CHUA_DEN');
   if(type==='SPEED_RESULT') return c==='b11'&&Number(data.speedKmh)<(Number(data.effectiveMinSpeedKmh)||23.75);
-  // Hết 120 giây mà chưa nhận TAG kết thúc: mỗi bài chỉ trừ 5 điểm một lần.
-  if(type==='TIMED_WARNING_ONLY') return ['b04','b06'].includes(c)&&Number(data.limitMs||120000)>=120000;
+  if(type==='TIMED_WARNING_ONLY') return ['b04','b06','b08','b12'].includes(c)&&Number(data.limitMs||120000)>=120000;
   if(type==='POSITION_RULE_120S_TIMEOUT') return ['b08','b12'].includes(c);
-  if(type==='COURSE_COMPLETED') return false;
+  if(type==='COURSE_COMPLETED') return ['b08','b12'].includes(c)&&String(data.result||'').toUpperCase()==='TIMEOUT';
   return false;
 }
 function countOfficialMinus5Events(events){
@@ -508,7 +539,7 @@ function event(type,data={}){
 }
 async function completeOfficialExam(data){if(officialExamLocked)return;officialExamLocked=true;try{const r=await apiPost({action:'completeexam',token:window.currentTeacher?.token,examId:activeOfficialExamId,result:{result:data.result||'HOAN_THANH',elapsedMs:data.elapsedMs||0,completedAt:data.completedAt||new Date().toISOString(),score:String(data.result||'').toUpperCase()==='LOAI_TRUC_TIEP'?0:currentOfficialScore(),directFail:!!data.directFail||String(data.result||'').toUpperCase()==='LOAI_TRUC_TIEP',directFailReason:data.directFailReason||data.reason||'',directFailCourse:data.directFailCourse||'',events:(engine?.events||[]).slice(-500)}});const d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false)throw Error(d.message||r.message||'Không lưu được kết quả thi');if(engine){engine.result='STOPPED';persist();}stopTotal18Ticker();stopOfficialProgress();officialHardDeadline=0;stopCamera();const directFail=String(data.result||'').toUpperCase()==='LOAI_TRUC_TIEP';set('status',directFail?'⛔ LOẠI TRỰC TIẾP — ĐÃ CHỐT KẾT QUẢ':'ĐÃ THI — ĐÃ KHÓA LƯỢT THI');alertMsg(directFail?'LOẠI TRỰC TIẾP. ĐÃ GHI NHẬN LỖI VÀ CHỐT KẾT QUẢ KHÔNG ĐẠT.':'ĐÃ LƯU KẾT QUẢ. HỌC VIÊN ĐÃ CHUYỂN SANG ĐÃ THI; CHỈ ADMIN MỚI MỞ KHÓA.',7000);const sb=$('startBtn'),rb=$('retryBtn');if(sb){sb.disabled=true;sb.textContent='🔒 HỌC VIÊN ĐÃ THI';}if(rb)rb.classList.add('hidden');const info=$('candidateInfo');if(info){info.style.whiteSpace='pre-line';info.textContent=`SBD: ${selectedCandidate?.sbd||''}\nHọ và tên: ${selectedCandidate?.hoTen||'Chưa có'}\nKhóa học: ${selectedCandidate?.khoaHoc||'Chưa có'}\nNgày sinh: ${selectedCandidate?.ngaySinh||'Chưa có'}\nSố CCCD: ${selectedCandidate?.cccd||'Chưa có'}\nTrạng thái: DA THI — liên hệ ADMIN để mở khóa.`;}}catch(e){officialExamLocked=false;set('status','LỖI LƯU KẾT QUẢ — CẦN KẾT NỐI MẠNG');alertMsg('CẢNH BÁO: CHƯA XÁC NHẬN LƯU KẾT QUẢ. Giữ nguyên kết nối mạng và báo ADMIN. '+(e.message||''),8000);}}
 function setExamMode(mode){stopOfficialProgress();officialHardDeadline=0;activeExamMode=mode;selectedCandidate=null;activeOfficialExamId=null;officialExamLocked=false;const isOfficial=mode==='official';$('practiceModeBtn')?.classList.toggle('active',!isOfficial);$('officialExamModeBtn')?.classList.toggle('active',isOfficial);$('officialExamPanel')?.classList.toggle('hidden',!isOfficial);renderOfficialScore();$('candidateInfo').textContent=isOfficial?'Tra cứu học viên trước khi bắt đầu thi.':'Đang ở chế độ luyện tập.';$('candidateError').textContent='';const sb=$('startBtn');if(sb){sb.disabled=isOfficial;sb.textContent=isOfficial?'▶ XÁC NHẬN — VÀO THI':'▶ BẮT ĐẦU';sb.classList.remove('running');}if(isOfficial&&String(window.currentTeacher?.quyen||'').toUpperCase()==='ADMIN')$('adminUnlockPanel')?.classList.remove('hidden');else $('adminUnlockPanel')?.classList.add('hidden');}
-async function lookupOfficialCandidate(){const sbd=$('candidateSbd').value.trim();$('candidateError').textContent='';if(!sbd){$('candidateError').textContent='Nhập số báo danh.';return;}try{const r=await apiPost({action:'lookupstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false){selectedCandidate=null;if(d.student){const st=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${st.sbd||''}\nHọ và tên: ${st.hoTen||'Chưa có'}\nKhóa học: ${st.khoaHoc||'Chưa có'}\nNgày sinh: ${st.ngaySinh||'Chưa có'}\nSố CCCD: ${st.cccd||'Chưa có'}\nTrạng thái thi: ${st.status||'CHUA THI'}\nQuyền thi: ${st.permission||'Chưa xác định'}`;}else $('candidateInfo').textContent='Chưa có thông tin học viên.';$('candidateError').textContent=d.message||'Không thể tra cứu.';$('startBtn').disabled=true;return;}selectedCandidate=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${d.student.sbd||''}\nHọ và tên: ${d.student.hoTen||'Chưa có'}\nKhóa học: ${d.student.khoaHoc||'Chưa có'}\nNgày sinh: ${d.student.ngaySinh||'Chưa có'}\nSố CCCD: ${d.student.cccd||'Chưa có'}\nTrạng thái: ${d.student.status||''}`;$('startBtn').disabled=false;$('startBtn').textContent='▶ XÁC NHẬN — VÀO THI';renderOfficialStudentInfo();}catch(e){$('candidateError').textContent='Không kết nối được máy chủ. Thi chính thức cần có mạng.';}}
+async function lookupOfficialCandidate(){const sbd=$('candidateSbd').value.trim();$('candidateError').textContent='';if(!sbd){$('candidateError').textContent='Nhập số báo danh.';return;}try{const r=await apiPost({action:'lookupstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false){selectedCandidate=null;if(d.student){const st=d.student;$('candidateInfo').style.whiteSpace='pre-line';$('candidateInfo').textContent=`SBD: ${st.sbd||''}\nHọ và tên: ${st.hoTen||'Chưa có'}\nKhóa học: ${st.khoaHoc||'Chưa có'}\nNgày sinh: ${st.ngaySinh||'Chưa có'}\nSố CCCD: ${st.cccd||'Chưa có'}\nTrạng thái thi: ${st.status||'CHUA THI'}\nQuyền thi: ${st.permission||'Chưa xác định'}`;}else $('candidateInfo').textContent='Chưa có thông tin học viên.';$('candidateError').textContent=d.message||'Không thể tra cứu.';$('startBtn').disabled=true;return;}selectedCandidate=d.student||{};if(!selectedCandidate.photoData){try{const pr=await apiPost({action:'getstudentphoto',token:window.currentTeacher?.token,sbd:selectedCandidate.sbd||sbd}),pd=pr.data||pr;if((pr.success===true||pr.ok===true)&&pd.ok!==false)selectedCandidate.photoData=pd.photoData||'';}catch(photoErr){console.warn('Không tải được ảnh riêng của học viên',photoErr);}}$('startBtn').disabled=false;$('startBtn').textContent='▶ XÁC NHẬN — VÀO THI';renderOfficialStudentInfo();}catch(e){$('candidateError').textContent='Không kết nối được máy chủ. Thi chính thức cần có mạng.';}}
 async function adminUnlockCandidate(){const sbd=$('adminResetSbd').value.trim();if(!sbd){$('adminResetMessage').textContent='Nhập số báo danh.';return;}if(!confirm('Mở khóa cho học viên này để thi lại? Kết quả thi cũ vẫn được giữ.'))return;try{const r=await apiPost({action:'adminresetstudent',token:window.currentTeacher?.token,sbd}),d=r.data||r;$('adminResetMessage').textContent=d.message||(d.ok?'Đã mở khóa.':'Không thực hiện được.');if(d.ok){$('candidateSbd').value=sbd;await lookupOfficialCandidate();}}catch(e){$('adminResetMessage').textContent='Lỗi kết nối máy chủ: '+(e.message||e);}}
 
 function confirmVehicleStationary(engineRef,d,t){
@@ -1319,9 +1350,6 @@ class CourseRule{
        this.positionReferenceTag=Number(this.d.check||32);
        this.delayAt=t;
        this.state=2;
-       // Chỉ lấy diện tích TAG 32 sau khi xe đã dừng làm mốc theo dõi lùi.
-       this.areaHistory=[a];
-       this.warnedRollback=false;
        this.audio('dungxe.mp3');
        event('B03_STOP_CONFIRMED',{tag:this.d.check,area:Math.round(a),timerMs:30000,stableMs:STABLE_MS});
        set('status','B03 — DỪNG XE — BẮT ĐẦU ĐẾM 30s');
@@ -1441,26 +1469,16 @@ class CourseRule{
  }
  rollback(area){
    const a=Number(area||0);
-   // Chỉ kết luận lùi xe sau khi đã phát hiện và xác nhận xe dừng tại TAG 32.
-   if(!this.stopConfirmed||!(a>0)||this.areaHistory.length<5||this.warnedRollback)return;
-   const samples=this.areaHistory.slice(-5);
-   const first=samples[0],last=samples[samples.length-1];
-   let fallingSteps=0;
-   for(let i=1;i<samples.length;i++)if(samples[i]<=samples[i-1])fallingSteps++;
-   // TAG 32 nhỏ dần liên tục qua ít nhất 5 mẫu và giảm tối thiểu 10%:
-   // dấu hiệu xe lùi khỏi vị trí dừng trên dốc.
-   if(fallingSteps>=4&&last<first*0.9){
+   if(!(a>0)||this.areaHistory.length<5||this.warnedRollback)return;
+   const prior=this.areaHistory.slice(0,-1);
+   if(!prior.length)return;
+   const avg=prior.reduce((sum,v)=>sum+v,0)/prior.length;
+   // Dấu hiệu tụt dốc: diện tích TAG 32 giảm mạnh so với trung bình các mẫu trước đó.
+   if(a<avg*0.9){
      this.warnedRollback=true;
      this.playErrorSequence('tutdoc.mp3','Tụt dốc');
-     event('B03_ROLLBACK',{
-       course:'b03',tag:this.d.check,
-       area:Math.round(last),areaAtStop:Math.round(first),
-       decreasePct:Number(((1-last/first)*100).toFixed(1)),
-       samples:samples.map(v=>Math.round(v)),
-       faultText:'Xe lùi sau khi đã dừng trên dốc cầu',
-       message:'Diện tích TAG 32 nhỏ dần sau khi xe đã dừng'
-     });
-     set('status','⛔ B03 — PHÁT HIỆN XE LÙI SAU KHI DỪNG — THI TRƯỢT');
+     event('B03_ROLLBACK',{tag:this.d.check,area:Math.round(a),averagePriorArea:Math.round(avg),threshold:Math.round(avg*0.9)});
+     set('status','⛔ B03 — PHÁT HIỆN TỤT DỐC — THI TRƯỢT');
    }
  }
  areaResult(a){let result='PASS';if(a<this.d.areaMin){result='EARLY';this.audio('chuaden.mp3')}else if(a<=this.d.areaMax){this.audio('dung.mp3')}else{result='LATE';this.audio('quavitri.mp3')}this.result=result;event('TARGET_RESULT',{course:this.key,area:Math.round(a),areaMin:this.d.areaMin,areaMax:this.d.areaMax,result});}
@@ -1487,18 +1505,6 @@ class ExamEngine{
     $('positionMonitor')?.classList.add('hidden');
     event('COURSE_ANNOUNCED',{course:key,tag:id,positionAdminButtonVisible:isPositionRuleCourse(key)});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}
  handle(d,t){if(this.result!=='RUNNING')return;if(t<this.tagLockUntil)return;const id=d.id;set('tag',id);
-   // B03: đã đi qua TAG 32 nhưng TAG 4 xuất hiện trước khi xác nhận dừng xe
-   // tại dốc cầu => lỗi không dừng xe, loại trực tiếp trong kỳ thi chính thức.
-   if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked&&
-      this.current?.key==='b03'&&Number(id)===4&&!this.current.stopConfirmed){
-     event('B03_NO_STOP_ON_RAMP',{
-       course:'b03',passedCheckTag:32,nextTag:4,
-       faultText:'Không dừng xe trên dốc cầu',
-       message:'Xe qua TAG 32 nhưng không dừng, đã xuất hiện TAG 4',
-       penalty:-25,directFail:true
-     });
-     return;
-   }
    // B08/B12: TAG báo bài kế tiếp cũng kết thúc bộ đếm phụ 120s.
    // Chỉ dừng đồng hồ; việc chuyển bài vẫn do announce() xử lý theo đúng thứ tự.
    if(this.current&&(this.current.key==='b08'||this.current.key==='b12')&&

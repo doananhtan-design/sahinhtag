@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nhập danh sách học viên XML</title>
+<style>
+:root{font-family:Arial,sans-serif;color:#172033;background:#f3f6fb}
+*{box-sizing:border-box}body{margin:0;padding:22px}.wrap{max-width:1050px;margin:auto}
+.card{background:#fff;border:1px solid #dbe3ef;border-radius:14px;padding:20px;margin:0 0 16px;box-shadow:0 3px 12px #1020400a}
+h1{font-size:24px;margin:0 0 8px}h2{font-size:18px;margin:0 0 14px}
+.muted{color:#637083;font-size:13px;line-height:1.5}.row{display:flex;gap:12px;flex-wrap:wrap}
+.field{flex:1;min-width:220px}label{display:block;font-weight:700;font-size:13px;margin:0 0 6px}
+input{width:100%;padding:11px;border:1px solid #cbd5e1;border-radius:8px;font-size:15px}
+button{border:0;border-radius:8px;padding:11px 16px;font-weight:700;cursor:pointer;background:#155eef;color:white}
+button.secondary{background:#e8eef8;color:#172033}button:disabled{opacity:.45;cursor:not-allowed}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+.status{margin-top:12px;padding:12px;border-radius:8px;background:#f1f5f9;white-space:pre-line;font-size:14px}
+.status.ok{background:#eaf8ef;color:#176b35}.status.err{background:#fff0f0;color:#a32121}
+.hidden{display:none!important}.tablewrap{overflow:auto;margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #e5eaf1;padding:9px;text-align:left;white-space:nowrap}th{background:#f7f9fc}
+.pill{display:inline-block;background:#e9f1ff;color:#174ea6;padding:4px 8px;border-radius:99px;font-size:12px;font-weight:700}
+.progress{height:9px;background:#e7edf5;border-radius:99px;overflow:hidden;margin-top:12px}.bar{height:100%;width:0;background:#1677ff;transition:width .2s}
+</style>
+</head>
+<body><div class="wrap">
+  <section class="card">
+    <h1>NHẬP DANH SÁCH HỌC VIÊN TỪ XML</h1>
+    <div class="muted">Công cụ riêng dành cho ADMIN của chế độ Thi Sa Hình. Dữ liệu XML chỉ được nhập vào sheet danh_sach_hoc_vien của Sa Hình AI; không kết nối, không ghi và không thay đổi danh sách học viên của công cụ mô phỏng 120 tình huống. Ảnh chân dung được lưu trong Google Drive riêng tư và mã file được lưu vào sheet Sa Hình.</div>
+  </section>
+  <section class="card" id="loginCard">
+    <h2>Đăng nhập ADMIN</h2>
+    <div class="row">
+      <div class="field"><label>Tài khoản</label><input id="username" autocomplete="username" value="admin"></div>
+      <div class="field"><label>Mật khẩu</label><input id="password" type="password" autocomplete="current-password"></div>
+    </div>
+    <div class="actions"><button id="loginBtn" onclick="login()">ĐĂNG NHẬP</button></div>
+    <div id="loginStatus" class="status">Chỉ tài khoản có quyền ADMIN mới được nhập XML.</div>
+  </section>
+  <section class="card hidden" id="importCard">
+    <div class="row" style="align-items:center;justify-content:space-between">
+      <h2>Cài đặt nguồn XML</h2><span class="pill" id="adminLabel">ADMIN</span>
+    </div>
+    <label>Chọn file XML sát hạch</label><input id="xmlFile" type="file" accept=".xml,text/xml,application/xml">
+    <div class="actions">
+      <button class="secondary" onclick="readXml()">ĐỌC VÀ KIỂM TRA XML</button>
+      <button id="importBtn" disabled onclick="startImport()">NHẬP VÀO DANH SÁCH HỌC VIÊN</button>
+      <button class="secondary" onclick="logout()">ĐĂNG XUẤT</button>
+    </div>
+    <div id="summary" class="status">Chưa chọn file XML.</div>
+    <div class="tablewrap hidden" id="previewWrap">
+      <table><thead><tr><th>STT</th><th>SBD</th><th>Họ và tên</th><th>Ngày sinh</th><th>Hạng</th><th>Khóa sát hạch</th><th>Ảnh</th></tr></thead><tbody id="previewBody"></tbody></table>
+    </div>
+    <div class="progress hidden" id="progressWrap"><div class="bar" id="progressBar"></div></div>
+    <div id="importStatus" class="status hidden"></div>
+  </section>
+</div>
+<script>
+let authToken='', parsedStudents=[];
+const $=id=>document.getElementById(id);
+function showStatus(id,msg,type){const e=$(id);e.textContent=msg;e.className='status'+(type?' '+type:'');}
+function callServer(fn,...args){return new Promise((resolve,reject)=>{google.script.run.withSuccessHandler(resolve).withFailureHandler(e=>reject(new Error(e&&e.message||e)))[fn](...args);});}
+async function login(){
+  $('loginBtn').disabled=true;showStatus('loginStatus','Đang xác thực ADMIN...');
+  try{
+    const r=await callServer('importXmlAdminLogin',$('username').value.trim(),$('password').value);
+    if(!r||!r.ok)throw new Error(r&&r.message||'Đăng nhập thất bại.');
+    authToken=r.token;$('loginCard').classList.add('hidden');$('importCard').classList.remove('hidden');
+    $('adminLabel').textContent='ADMIN: '+(r.teacher&&r.teacher.hoTen||r.teacher&&r.teacher.taiKhoan||'');
+  }catch(e){showStatus('loginStatus',e.message,'err');}
+  finally{$('loginBtn').disabled=false;}
+}
+function field(node,name){const el=node.getElementsByTagName(name)[0];return el?(el.textContent||'').trim():'';}
+async function readXml(){
+  const f=$('xmlFile').files[0];if(!f){showStatus('summary','Vui lòng chọn file XML.','err');return;}
+  try{
+    const xmlText=await f.text(), doc=new DOMParser().parseFromString(xmlText,'application/xml');
+    if(doc.getElementsByTagName('parsererror').length)throw new Error('File XML không đúng định dạng.');
+    const nodes=Array.from(doc.getElementsByTagName('THI_SINH'));
+    if(!nodes.length)throw new Error('Không tìm thấy thẻ THI_SINH trong XML.');
+    parsedStudents=nodes.map((n,i)=>{
+      const rawPhoto=field(n,'ANH_CHAN_DUNG').replace(/^data:image\/[^;]+;base64,/i,'').replace(/\s/g,'');
+      return {
+        sbd:field(n,'SO_BAO_DANH'),hoTen:field(n,'HO_TEN_IN')||field(n,'HO_TEN'),
+        cccd:field(n,'SO_CMT'),ngaySinh:field(n,'NGAY_SINH'),
+        hangGPLX:field(n,'HANG_GPLX'),kySatHach:field(n,'KY_SAT_HACH'),
+        tenKySatHach:field(n,'TEN_KY_SAT_HACH'),maDangKy:field(n,'MA_DANG_KY'),
+        quocTich:field(n,'QUOC_TICH'),noiCt:field(n,'NOI_CT'),
+        photoBase64:rawPhoto,photoMime:'image/jpeg'
+      };
+    });
+    const invalid=parsedStudents.filter(s=>!s.sbd||!s.hoTen||!s.cccd).length;
+    const photos=parsedStudents.filter(s=>s.photoBase64).length;
+    $('previewBody').innerHTML=parsedStudents.map((s,i)=>`<tr><td>${i+1}</td><td>${esc(s.sbd)}</td><td>${esc(s.hoTen)}</td><td>${esc(formatDob(s.ngaySinh))}</td><td>${esc(s.hangGPLX)}</td><td>${esc(s.kySatHach)}</td><td>${s.photoBase64?'Có':'Không'}</td></tr>`).join('');
+    $('previewWrap').classList.remove('hidden');
+    $('importBtn').disabled=invalid>0;
+    showStatus('summary',`Đã đọc ${parsedStudents.length} học viên. Có ảnh: ${photos}. Thiếu SBD/họ tên/CCCD: ${invalid}.\\nKhi nhập lại, hệ thống cập nhật theo CCCD trước, sau đó SBD; không tạo bản ghi trùng. Trạng thái cho phép thi và trạng thái lượt thi hiện có được giữ nguyên.`);
+  }catch(e){parsedStudents=[];$('importBtn').disabled=true;$('previewWrap').classList.add('hidden');showStatus('summary',e.message,'err');}
+}
+function esc(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function formatDob(v){const s=String(v||'');return /^\d{8}$/.test(s)?s.slice(6,8)+'/'+s.slice(4,6)+'/'+s.slice(0,4):s;}
+async function startImport(){
+  if(!authToken||!parsedStudents.length)return;
+  $('importBtn').disabled=true;$('progressWrap').classList.remove('hidden');$('importStatus').classList.remove('hidden');
+  const batchSize=3,total=parsedStudents.length;let added=0,updated=0,photos=0,failed=[];
+  try{
+    for(let i=0;i<total;i+=batchSize){
+      const batch=parsedStudents.slice(i,i+batchSize);
+      const r=await callServer('importXmlStudentsBatch',authToken,batch);
+      if(!r||!r.ok)throw new Error(r&&r.message||'Máy chủ không xác nhận lô dữ liệu.');
+      added+=Number(r.added||0);updated+=Number(r.updated||0);photos+=Number(r.photos||0);
+      (r.errors||[]).forEach(x=>failed.push((x.sbd||'')+': '+x.message));
+      const done=Math.min(i+batch.length,total);$('progressBar').style.width=(done/total*100)+'%';
+      showStatus('importStatus',`Đã xử lý ${done}/${total} học viên...\\nThêm mới: ${added} | Cập nhật: ${updated} | Ảnh xử lý: ${photos}`);
+    }
+    const final=`HOÀN TẤT NHẬP XML\\nTổng: ${total} | Thêm mới: ${added} | Cập nhật: ${updated} | Ảnh: ${photos} | Lỗi: ${failed.length}`+(failed.length?'\\n\\n'+failed.join('\\n'):'');
+    showStatus('importStatus',final,failed.length?'err':'ok');
+  }catch(e){showStatus('importStatus','DỪNG NHẬP: '+e.message+'\\nBạn có thể chọn lại cùng file XML để tiếp tục; hệ thống sẽ cập nhật bản ghi cũ, không tạo trùng.','err');}
+  finally{$('importBtn').disabled=false;}
+}
+async function logout(){try{if(authToken)await callServer('logout',authToken);}catch(e){}authToken='';$('importCard').classList.add('hidden');$('loginCard').classList.remove('hidden');$('password').value='';}
+</script>
+</body></html>

@@ -171,3 +171,6 @@
 .position-visual-status.is-early{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
 .position-visual-status.is-late{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 .position-tolerance-note{font-size:11px;color:#64748b;margin-top:8px;text-align:center}
+
+/* V3.1 — ảnh học viên trong khung tra cứu thi chính thức */
+.candidate-info-text{white-space:pre-line;line-height:1.45}.candidate-photo-wrap{display:flex;justify-content:flex-start;align-items:flex-start;margin-top:12px}.official-candidate-photo{display:block;width:112px;height:140px;max-width:100%;object-fit:cover;object-position:center;border:1px solid #426080;border-radius:8px;background:#fff}.candidate-photo-note{display:block;margin-top:10px;color:#fdb022;font-size:12px;line-height:1.4}
