@@ -174,3 +174,10 @@
 
 /* V3.1 — ảnh học viên trong khung tra cứu thi chính thức */
 .candidate-info-text{white-space:pre-line;line-height:1.45}.candidate-photo-wrap{display:flex;justify-content:flex-start;align-items:flex-start;margin-top:12px}.official-candidate-photo{display:block;width:112px;height:140px;max-width:100%;object-fit:cover;object-position:center;border:1px solid #426080;border-radius:8px;background:#fff}.candidate-photo-note{display:block;margin-top:10px;color:#fdb022;font-size:12px;line-height:1.4}
+
+/* V3.1: Giao dien tap trung khi da xac nhan vao THI CHINH THUC. */
+body.official-exam-running #appTabs,
+body.official-exam-running #examModeCard,
+body.official-exam-running #startBtn{display:none!important}
+body.official-exam-running #officialScorePanel{margin-top:10px}
+body.official-exam-running .total-clock-top{margin-top:10px}

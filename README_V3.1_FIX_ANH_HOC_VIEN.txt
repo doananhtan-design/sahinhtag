@@ -20,3 +20,13 @@ Luu y:
 - Khong sua quy tac TAG, timer, diem thi hay am thanh.
 - Khong tu dong cap nhat Google Sheet/Drive va khong tu dong trien khai.
 - Da kiem tra cu phap JavaScript va cau truc ZIP; chua the kiem thu ket noi Google Drive/GAS live.
+
+
+BO SUNG V3.1 - GIAO DIEN TAP TRUNG KHI VAO THI
+Sau khi API beginexam xac nhan thanh cong:
+- An thanh dieu huong SA HINH / GIAO VIEN.
+- An khoi CHE DO HOAT DONG va toan bo phan tra cuu/thong tin hoc vien.
+- An nut XAC NHAN - VAO THI vi da bat dau.
+- Giu lai diem thi, dong ho 18 phut, dong ho phu, camera/sa hinh, bai, TAG va trang thai.
+- Chi ap dung cho THI SA HINH chinh thuc; MODE LUYEN TAP khong bi thay doi.
+Neu camera/audio/API khong san sang hoac beginexam that bai, giao dien khong bi an.
