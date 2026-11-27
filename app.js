@@ -521,18 +521,19 @@ function event(type,data={}){
   }
   engine.events.push(entry);persist();
   // Ghi từng sự kiện ngay khi phát sinh; API sẽ hợp nhất theo eventId để không mất dữ liệu khi đồng bộ định kỳ.
+  let officialEventLogPromise=null;
   if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked){
-    apiPost({action:'logexamevent',token:window.currentTeacher?.token,examId:activeOfficialExamId,event:entry})
-      .then(r=>{const d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false)console.warn('Real-time event log rejected',d.message||r.message||'');})
-      .catch(e=>console.warn('Real-time event log failed; periodic/full result sync remains enabled',e));
+    officialEventLogPromise=apiPost({action:'logexamevent',token:window.currentTeacher?.token,examId:activeOfficialExamId,event:entry})
+      .then(r=>{const d=r.data||r;if(!(r.success===true||r.ok===true)||d.ok===false)throw Error(d.message||r.message||'Không ghi nhận được lỗi');return d;})
+      .catch(e=>{console.warn('Real-time event log failed; periodic/full result sync remains enabled',e);return null;});
     if(isOfficialMinus5(type,entry)){
       renderOfficialScore();
       set('status',`⚠️ ${String(entry.course||'').toUpperCase()} — ${entry.message||entry.faultText||type} — CÒN ${currentOfficialScore()} ĐIỂM`);
     }
     if(isOfficialDirectFail(type,entry)){
       const score=currentOfficialScore();set('status',`⛔ LOẠI TRỰC TIẾP — ${String(entry.course||'').toUpperCase()||type} — CÒN 0 ĐIỂM`);
-      (async()=>{if(entry.faultText&&'speechSynthesis'in window){try{window.speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(entry.faultText);u.lang='vi-VN';u.rate=0.9;await new Promise(resolve=>{u.onend=resolve;u.onerror=resolve;window.speechSynthesis.speak(u);setTimeout(resolve,5000);});}catch(_){}}else if(entry.faultAudio){await playSharedAudio(entry.faultAudio);}await playSharedAudio('thitruot.mp3');})();
-      completeOfficialExam({result:'LOAI_TRUC_TIEP',reason:type,directFail:true,directFailReason:entry.message,directFailCourse:entry.course||'',score:0,penalty:-25,elapsedMs:officialHardDeadline?Math.max(0,18*60*1000-(officialHardDeadline-Date.now())):0,completedAt:nowIso,events:engine.events.slice(-500)}).catch(e=>console.error('Save direct-fail result failed',e));return;
+      // Âm thanh lỗi và thông báo trượt do máy phát thanh trung tâm xử lý; máy thi không tự phát để tránh chồng tiếng.
+      (async()=>{if(officialEventLogPromise)await officialEventLogPromise;await completeOfficialExam({result:'LOAI_TRUC_TIEP',reason:type,directFail:true,directFailReason:entry.message,directFailCourse:entry.course||'',score:0,penalty:-25,elapsedMs:officialHardDeadline?Math.max(0,18*60*1000-(officialHardDeadline-Date.now())):0,completedAt:nowIso,events:engine.events.slice(-500)});})().catch(e=>console.error('Save direct-fail result failed',e));return;
     }
   }
   if(type==='EXAM_COMPLETED'&&activeExamMode==='official'&&activeOfficialExamId)completeOfficialExam({...entry,...data,score:currentOfficialScore(),events:engine.events.slice(-500)}).catch(e=>console.error('Save exam result failed',e));
