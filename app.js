@@ -83,7 +83,7 @@ function startTotal18Ticker(engineRef){
 // KET NOI DUY NHAT VOI GOOGLE SHEET: dang nhap giao vien.
 // Am thanh chay truc tiep tu thu muc PWA, khong qua Google Drive/GAS.
 const SAHINH_API_URL = String(window.SAHINH_API_URL || '').trim();
-let activeExamMode='practice', selectedCandidate=null, activeOfficialExamId=null, officialExamLocked=false;
+let activeExamMode='practice', selectedCandidate=null, activeOfficialExamId=null, officialExamLocked=false, wrongSequenceAudioPlayedForExamId='';
 const audioMem = new Map();
 const criticalAudioMem = new Map();
 let audioUnlocked = false;
@@ -182,7 +182,7 @@ function preloadLocalAudio(){
       list.push('./audio/b01/qua30s.mp3');
     }
   }
-  list.push('./audio/THKC/THKC.mp3','./audio/THKC/saiquytrinh.mp3','./audio/KT/hoanthanh.mp3','./audio/quatong.mp3','./audio/thitruot.mp3');
+  list.push('./audio/THKC/THKC.mp3','./audio/THKC/saiquytrinh.mp3','./audio/saiquytrinhbai.mp3','./audio/KT/hoanthanh.mp3','./audio/quatong.mp3','./audio/thitruot.mp3');
   [...new Set(list)].forEach(src=>{const a=new Audio();a.preload='auto';a.src=src;});
 }
 function reportAudioError(src, err, note=''){
@@ -520,6 +520,12 @@ function event(type,data={}){
     else if(entry.error||entry.isError||entry.error_code||entry.error_message||entry.faultText||entry.faultAudio){entry.isError=true;entry.errorCategory=entry.errorCategory||'LOI_KHAC';entry.penalty=Number(entry.penalty||entry.diemTru||0);entry.message=entry.message||entry.faultText||entry.errorText||entry.error_message||type;}
   }
   engine.events.push(entry);persist();
+  // Phát lỗi sai quy trình ngay trên máy chạy ứng dụng bằng MP3 riêng; hàng đợi audio bảo đảm không chồng tiếng.
+  if(type==='OFFICIAL_WRONG_SEQUENCE'&&activeExamMode==='official'&&activeOfficialExamId&&wrongSequenceAudioPlayedForExamId!==activeOfficialExamId){
+    // Một lượt thi chỉ phát một lần lỗi sai quy trình; tránh lặp MP3 khi camera tiếp tục nhìn thấy TAG sai.
+    wrongSequenceAudioPlayedForExamId=activeOfficialExamId;
+    playSharedAudio('saiquytrinhbai.mp3').catch(e=>console.warn('Không phát được MP3 sai quy trình tại máy app',e));
+  }
   // Ghi từng sự kiện ngay khi phát sinh; API sẽ hợp nhất theo eventId để không mất dữ liệu khi đồng bộ định kỳ.
   let officialEventLogPromise=null;
   if(activeExamMode==='official'&&activeOfficialExamId&&!officialExamLocked){
@@ -1501,7 +1507,7 @@ class ExamEngine{
    return true;
  }
  nextEmergencySpot(){const spots=['b05','b10','b12'];let i=Number(localStorage.getItem('sahinh_thkc_index_v2')||0);localStorage.setItem('sahinh_thkc_index_v2',String((i+1)%spots.length));return spots[i%spots.length]}
- announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'THKC/saiquytrinh.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);if(key==='KT')this.ktAutoResetDone=false;this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());
+ announce(id,t){if(t<this.tagLockUntil)return false;const idx=ORDER.findIndex(k=>COURSE_DEFS[k].announce===id);if(idx<0)return false;if(id===this.lastAnnounce)return false;const outOfOrder=this.index>=0&&idx!==this.index+1;if(outOfOrder&&activeExamMode==='official'){if(activeOfficialExamId&&!officialExamLocked&&idx>this.index+1){event('OFFICIAL_WRONG_SEQUENCE',{course:this.current?.key||ORDER[this.index],tag:id,nextCourse:ORDER[idx],expectedCourse:ORDER[this.index+1],faultAudio:'saiquytrinhbai.mp3',penalty:-25,directFail:true,message:'Đi sai quy trình, không đúng thứ tự bài'});}return false;}if(outOfOrder&&activeExamMode!=='practice')return false;const key=ORDER[idx];this.index=idx;this.current=this.ruleByKey[key];this.current.init(t);if(key==='KT')this.ktAutoResetDone=false;this.lastAnnounce=id;this.lastChecked=-1;this.lastCx=this.lastCy=-1;this.lastArea=0;this.stableAt=0;set('course',key.toUpperCase());
     showPositionConfirm(isPositionRuleCourse(key),key);
     $('positionMonitor')?.classList.add('hidden');
     event('COURSE_ANNOUNCED',{course:key,tag:id,positionAdminButtonVisible:isPositionRuleCourse(key)});if(key===this.emergencySpot&&!this.emergencyTriggered){this.emergencyPendingAt=t+5000;event('THKC_SCHEDULED',{course:key,delayMs:5000})}if(key==='b01')this.tagLockUntil=t+20000;return true}

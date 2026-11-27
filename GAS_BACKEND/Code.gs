@@ -725,7 +725,8 @@ function examBegin_(token,sbd){
     st.sh.getRange(st.row,cT+1).setValue('DANG THI');
     var cAt2=examCol_(headers,['CAPNHATLUC']);if(cAt2>=0)st.sh.getRange(st.row,cAt2+1).setValue(now);
     var resultSheet=examEnsureSheets_().results;resultSheet.appendRow([examId,st.sbd,st.hoTen,st.cccd,sess.taiKhoan,now,'','DANG THI - DANG CAP NHAT',JSON.stringify({photoFileId:st.photoFileId||''})]);
-    PropertiesService.getScriptProperties().setProperty('EXAM_ACTIVE_'+examId,JSON.stringify({sbd:st.sbd,teacher:sess.taiKhoan,startedAt:now.toISOString(),status:'RUNNING',photoFileId:st.photoFileId||''}));
+    PropertiesService.getScriptProperties().setProperty('EXAM_ACTIVE_'+examId,JSON.stringify({sbd:st.sbd,hoTen:st.hoTen,teacher:sess.taiKhoan,startedAt:now.toISOString(),status:'RUNNING',photoFileId:st.photoFileId||''}));
+    examQueueAnnouncement_(examId,st.sbd,st.hoTen,'THI_BAT_DAU',examAnnouncementEventText_('THI_BAT_DAU',{sbd:st.sbd,hoTen:st.hoTen}),'START_'+examId);
     return {ok:true,examId:examId,student:{sbd:st.sbd,hoTen:st.hoTen,cccd:st.cccd},startedAt:now.toISOString()};
   }finally{lock.releaseLock();}
 }
@@ -805,7 +806,12 @@ function examComplete_(token,examId,detail){
     st.sh.getRange(st.row,cT+1).setValue('DA THI');
     var cAt=examCol_(st.headers,['CAPNHATLUC']);if(cAt>=0)st.sh.getRange(st.row,cAt+1).setValue(end);
     var cBy=examCol_(st.headers,['CAPNHATBOI']);if(cBy>=0)st.sh.getRange(st.row,cBy+1).setValue(sess.taiKhoan);
-    active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,status:'DA THI',eventsSaved:(merged.events||[]).length,directFail:!!merged.directFail};
+    active.status='COMPLETED';active.completedAt=end.toISOString();props.setProperty(key,JSON.stringify(active));
+    // Ket qua cuoi chi phat mot lan. Neu da phat truot tuc thoi khi diem xuong duoi 80 thi khong lap lai.
+    var passed=!merged.directFail && Number(merged.score||0)>=80;
+    var announceType=passed?'THI_DAT':'THI_TRUOT';
+    examQueueAnnouncement_(examId,st.sbd,st.hoTen,announceType,examAnnouncementEventText_(announceType,{sbd:st.sbd,hoTen:st.hoTen,score:merged.score}), 'RESULT_'+examId);
+    return {ok:true,status:'DA THI',eventsSaved:(merged.events||[]).length,directFail:!!merged.directFail};
   }finally{lock.releaseLock();}
 }
 function examProgress_(token,examId,detail){
@@ -824,6 +830,27 @@ function examProgress_(token,examId,detail){
     active.lastProgressAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));return {ok:true,eventsSaved:(merged.events||[]).length};
   }finally{lock.releaseLock();}
 }
+function examResolveViolationAudioPath_(ev){
+  ev=ev||{};
+  var type=String(ev.type||''),course=String(ev.course||ev.bai||'').toLowerCase();
+  if(type==='B01_TAG_111_TIMEOUT')course='b01';
+  if(type==='B03_TIMEOUT_30S'||type==='B03_ROLLBACK')course='b03';
+  var result=String(ev.result||'').toUpperCase(),file=String(ev.audio||'').split('/').pop();
+  if(type==='OFFICIAL_WRONG_SEQUENCE')return ''; // MP3 sai quy trinh duoc phat tai may app, tranh phat trung tu may trung tam.
+  if(type==='B01_TAG_111_TIMEOUT')file='qua30s.mp3';
+  else if(type==='B03_TIMEOUT_30S')file='qua30s.mp3';
+  else if(type==='B03_ROLLBACK')file='tutdoc.mp3';
+  else if(type==='SPEED_RESULT' && Number(ev.speedKmh)<(Number(ev.effectiveMinSpeedKmh)||23.75))file='thieutoc.mp3';
+  else if(type==='POSITION_RULE_120S_TIMEOUT'||type==='TIMED_WARNING_ONLY'||(type==='COURSE_COMPLETED'&&result==='TIMEOUT'))file=file&&file!=='none'?file:'quatg1.mp3';
+  else if(type==='POSITION_COMPARE'){
+    if(file==='none'||!file)file=result==='QUA_VI_TRI'?'quavitri.mp3':(result==='CHUA_DEN'?'chuaden.mp3':'');
+  }
+  if(!file||file==='none')return '';
+  // Chỉ trả đường dẫn có thư viện tương ứng; không gán nhầm âm thanh của bài khác.
+  if(!/^b\d{2}$/.test(course))return '';
+  return 'audio/'+course+'/'+file;
+}
+
 function examLogEvent_(token,examId,event){
   var sess=examSession_(token);if(!sess)return {ok:false,message:'Phiên đăng nhập không hợp lệ.'};
   var props=PropertiesService.getScriptProperties(),key='EXAM_ACTIVE_'+String(examId||''),raw=props.getProperty(key);
@@ -838,11 +865,81 @@ function examLogEvent_(token,examId,event){
     var ev=event&&typeof event==='object'?event:{};if(!ev.eventId)ev.eventId=Utilities.getUuid();
     var merged=examMergeDetail_(old,{events:[ev],lastUpdate:new Date().toISOString()});
     if(ev.directFail){merged.directFail=true;merged.directFailReason=merged.directFailReason||ev.message||ev.faultText||ev.type||'Lỗi loại trực tiếp';merged.directFailCourse=merged.directFailCourse||ev.course||'';merged.score=0;}
+    var events=merged.events||[];
+    var directTypes=['B01_TAG_111_TIMEOUT','B03_TIMEOUT_30S','B03_ROLLBACK','B08_NO_GHEP_XE','B12_NO_GHEP_XE','OFFICIAL_WRONG_SEQUENCE'];
+    var minusTypes=['POSITION_COMPARE','TIMED_WARNING_ONLY','POSITION_RULE_120S_TIMEOUT','SPEED_RESULT','COURSE_COMPLETED'];
+    function isMinus5_(x){var c=String(x.course||'').toLowerCase(),r=String(x.result||'').toUpperCase();
+      if(x.type==='POSITION_COMPARE')return (['b02','b10'].indexOf(c)>=0&&['QUA_VI_TRI','CHUA_DEN'].indexOf(r)>=0)||(c==='b03'&&r==='CHUA_DEN');
+      if(x.type==='SPEED_RESULT')return c==='b11'&&Number(x.speedKmh)<(Number(x.effectiveMinSpeedKmh)||23.75);
+      if(x.type==='TIMED_WARNING_ONLY')return ['b04','b06','b08','b12'].indexOf(c)>=0&&Number(x.limitMs||0)>=120000;
+      if(x.type==='POSITION_RULE_120S_TIMEOUT')return ['b08','b12'].indexOf(c)>=0;
+      if(x.type==='COURSE_COMPLETED')return ['b08','b12'].indexOf(c)>=0&&r==='TIMEOUT';return false;}
+    var minusSeen={},minusCount=0,directSeen={},directCount=0;
+    events.forEach(function(x){if(!x)return;var c=String(x.course||'').toLowerCase();if(minusTypes.indexOf(x.type)>=0&&isMinus5_(x)){var cat=x.type==='POSITION_COMPARE'?'POSITION_'+String(x.result||''):(['TIMED_WARNING_ONLY','POSITION_RULE_120S_TIMEOUT','COURSE_COMPLETED'].indexOf(x.type)>=0?'TIMEOUT':x.type);var k=c+'|'+cat;if(!minusSeen[k]){minusSeen[k]=true;minusCount++;}}
+      if(x.directFail||directTypes.indexOf(x.type)>=0){var dk=String(x.type||'')+'|'+c+'|'+String(x.tag||x.checkTag||'')+'|'+String(x.afterMs||'');if(!directSeen[dk]){directSeen[dk]=true;directCount++;}}});
+    var score=merged.directFail?0:Math.max(0,100-5*minusCount-25*directCount);merged.score=score;
     sh.getRange(row,9).setValue(examSerializeDetail_(merged));
     active.lastEventAt=new Date().toISOString();props.setProperty(key,JSON.stringify(active));
-    return {ok:true,eventSaved:true,eventsSaved:(merged.events||[]).length};
+    var sbd=String(active.sbd||''),name=String(active.hoTen||'');
+    var violationAudioPath=examResolveViolationAudioPath_(ev);
+    if(ev.directFail){if(type!=='OFFICIAL_WRONG_SEQUENCE')examQueueAnnouncement_(examId,sbd,name,'LOAI_TRUC_TIEP',examAnnouncementEventText_('LOAI_TRUC_TIEP',{sbd:sbd,hoTen:name,message:ev.message||ev.faultText||ev.type||'Lỗi loại trực tiếp'}),'FAULT_'+String(ev.eventId),violationAudioPath);}
+    else if(ev.errorCategory==='TRU_DIEM'||(ev.isError&&Number(ev.penalty||ev.diemTru||0)===5)){
+      examQueueAnnouncement_(examId,sbd,name,'LOI_TRU_5',examAnnouncementEventText_('LOI_TRU_5',{sbd:sbd,course:ev.course||ev.bai||'',message:ev.message||ev.faultText||ev.errorText||ev.type||'Lỗi vi phạm',score:score}),'FAULT_'+String(ev.eventId),violationAudioPath);
+    }
+    if((merged.directFail||score<80)&&!examAnnouncementHasEvent_('RESULT_'+examId)){
+      examQueueAnnouncement_(examId,sbd,name,'THI_TRUOT',examAnnouncementEventText_('THI_TRUOT',{sbd:sbd,hoTen:name,score:score}),'RESULT_'+examId);
+    }
+    return {ok:true,eventSaved:true,eventsSaved:events.length,score:score,announcementQueued:true};
   }finally{lock.releaseLock();}
 }
+
+/* ===== V3.1: HỆ THỐNG PHÁT THANH SA HÌNH TẬP TRUNG ===== */
+function examAnnouncementSheet_(){
+  var ss=SpreadsheetApp.getActive();
+  var sh=ss.getSheetByName('PHAT_THANH_SA_HINH');
+  if(!sh){sh=ss.insertSheet('PHAT_THANH_SA_HINH');sh.appendRow(['THOI_GIAN','MA_LUOT_THI','SBD','HO_TEN','LOAI_SU_KIEN','NOI_DUNG','EVENT_ID','AUDIO_PATH']);sh.setFrozenRows(1);}
+  else if(sh.getLastColumn()<8){sh.getRange(1,8).setValue('AUDIO_PATH');}
+  return sh;
+}
+function examAnnouncementHasEvent_(eventId){
+  var sh=examAnnouncementSheet_(),last=sh.getLastRow();if(last<2)return false;
+  var ids=sh.getRange(2,7,last-1,1).getDisplayValues();
+  for(var i=0;i<ids.length;i++)if(String(ids[i][0])===String(eventId))return true;
+  return false;
+}
+function examQueueAnnouncement_(examId,sbd,hoTen,type,message,eventId,audioPath){
+  if(eventId&&examAnnouncementHasEvent_(eventId))return -1;
+  var sh=examAnnouncementSheet_();
+  var row=sh.getLastRow()+1;
+  sh.getRange(row,1,1,8).setValues([[new Date(),String(examId||''),String(sbd||''),String(hoTen||''),String(type||''),String(message||''),String(eventId||Utilities.getUuid()),String(audioPath||'')]]);
+  sh.getRange(row,3).setNumberFormat('@').setValue(String(sbd||''));
+  return row-1;
+}
+function examAnnouncementPoll_(token,afterId,initialize){
+  var sess=examSession_(token);
+  if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được điều khiển hệ thống phát thanh.'};
+  var sh=examAnnouncementSheet_(),lastId=Math.max(0,sh.getLastRow()-1);
+  if(initialize)return {ok:true,cursor:lastId,events:[]};
+  var cursor=Math.max(0,Number(afterId||0));
+  if(lastId<=cursor)return {ok:true,cursor:lastId,events:[]};
+  var start=cursor+1,count=Math.min(50,lastId-start+1);
+  var rows=sh.getRange(start+1,1,count,8).getDisplayValues();
+  var events=rows.map(function(r,i){return {id:start+i,time:r[0],examId:r[1],sbd:r[2],hoTen:r[3],type:r[4],message:r[5],eventId:r[6],audioPath:r[7]||''};});
+  return {ok:true,cursor:start+count-1,events:events};
+}
+function examAnnouncementEventText_(type,detail){
+  var t=String(type||''),d=detail||{};
+  var sbd=String(d.sbd||'').trim(),name=String(d.hoTen||'').trim();
+  if(t==='THI_BAT_DAU')return 'Mời thí sinh số báo danh '+sbd+' bắt đầu thi Sa Hình.';
+  if(t==='THI_DAT')return 'Thí sinh số báo danh '+sbd+' thi đạt. Xin chúc mừng!';
+  if(t==='THI_TRUOT')return 'Thí sinh số báo danh '+sbd+' thi không đạt.';
+  if(t==='KHONG_GHEP_XE')return 'Thí sinh số báo danh '+sbd+' không hoàn thành nội dung ghép xe.';
+  var msg=String(d.message||'').trim();
+  if(t==='LOI_TRU_5')return 'Thí sinh số báo danh '+sbd+', lỗi '+String(d.course||'')+'. '+msg+'. Trừ 5 điểm. Điểm còn lại '+String(d.score==null?'':d.score)+'.';
+  if(t==='LOAI_TRUC_TIEP')return 'Thí sinh số báo danh '+sbd+' mắc lỗi loại trực tiếp. '+(msg?'Lý do: '+msg+'.':'');
+  return 'Thí sinh số báo danh '+sbd+' bị lỗi trong quá trình thi. '+(msg?'Lý do: '+msg+'.':'');
+}
+
 function examAdminReset_(token,sbd){
   var sess=examSession_(token);if(!sess||String(sess.quyen||'').toUpperCase()!=='ADMIN')return {ok:false,message:'Chỉ ADMIN mới được mở khóa học viên.'};
   var lock=LockService.getScriptLock();lock.waitLock(10000);try{
@@ -920,25 +1017,33 @@ function adminGetResultPhotoForResults(token, examId){
   return {ok:false,message:'Không tìm thấy lượt thi.'};
 }
 
+function examFormatVietnamDateTime_(value){
+  if(value===null||value===undefined||value==='')return '';
+  var d=value instanceof Date?value:new Date(value);
+  if(!d||isNaN(d.getTime()))return String(value);
+  // Hiển thị thống nhất theo giờ Việt Nam, không phụ thuộc múi giờ trình duyệt/máy chủ.
+  return Utilities.formatDate(d,'Asia/Ho_Chi_Minh','dd/MM/yyyy HH:mm:ss');
+}
 function examAdminListResults_(token, query){
   var sess=examSession_(token);
   if(!sess || String(sess.quyen||'').toUpperCase()!=='ADMIN') return {ok:false,message:'Chỉ ADMIN mới được xem kết quả thi.'};
   var sh=examEnsureSheets_().results;
   var last=sh.getLastRow();
   if(last<2) return {ok:true,results:[]};
-  var values=sh.getRange(2,1,last-1,9).getDisplayValues();
+  // Dùng display values cho SBD/CCCD để giữ số 0 đầu; dùng Date gốc cho BAT_DAU/KET_THUC.
+  var range=sh.getRange(2,1,last-1,9), values=range.getDisplayValues(), raw=range.getValues();
   var q=String(query||'').trim().toUpperCase();
-  var out=values.map(function(r){
+  var out=values.map(function(r,i){
     var detail={}; try{detail=JSON.parse(r[8]||'{}');}catch(e){}
     var events=Array.isArray(detail.events)?detail.events:[];
     var score=(typeof detail.score==='number')?detail.score:(detail.directFail?0:null);
     var errors=events.filter(function(ev){return ev && (ev.isError || ev.errorCategory || ev.penalty || ev.directFail || ev.loaiTrucTiep || /ERROR|FAULT|LOI|WRONG|NO_GHEP|TIMEOUT|QUA_VI_TRI|CHUA_DEN|DIRECT.?FAIL|LOAI.?TRUC.?TIEP/i.test(String(ev.type||ev.event||ev.code||'')));}).map(function(ev){
       return {time:ev.time||ev.at||ev.timestamp||'',course:ev.course||'',type:ev.type||ev.event||ev.code||'',message:ev.message||ev.faultText||ev.errorText||ev.reason||'',penalty:Number(ev.penalty||0),directFail:!!ev.directFail};
     });
-    return {examId:r[0],sbd:r[1],hoTen:r[2],cccd:r[3],giaoVien:r[4],batDau:r[5],ketThuc:r[6],ketQua:r[7],score:score,events:events,errors:errors,detail:detail};
+    return {examId:r[0],sbd:r[1],hoTen:r[2],cccd:r[3],giaoVien:r[4],batDau:examFormatVietnamDateTime_(raw[i][5]||r[5]),ketThuc:examFormatVietnamDateTime_(raw[i][6]||r[6]),ketQua:r[7],score:score,events:events,errors:errors,detail:detail};
   }).filter(function(x){return !q || [x.examId,x.sbd,x.hoTen,x.giaoVien,x.ketQua].join(' ').toUpperCase().indexOf(q)>=0;});
   out.reverse();
-  return {ok:true,results:out.slice(0,1000)};
+  return {ok:true,results:out.slice(0,1000),serverTime:examFormatVietnamDateTime_(new Date())};
 }
 
 function examAdminList_(token){
@@ -977,6 +1082,8 @@ function doPost(e) {
       result=examProgress_(String(body.token||''),String(body.examId||''),body.detail||{});
     }else if(action==='logexamevent'){
       result=examLogEvent_(String(body.token||''),String(body.examId||''),body.event||{});
+    }else if(action==='announcementpoll'){
+      result=examAnnouncementPoll_(String(body.token||''),body.afterId,!!body.initialize);
     }else if(action==='adminresetstudent'){
       result=examAdminReset_(String(body.token||''),String(body.sbd||''));
     }else if(action==='adminliststudents'){
@@ -1021,6 +1128,12 @@ function adminListResultsForResults(token, query) {
   if (!v.ok) return v;
   return examAdminListResults_(String(token || ''), String(query || ''));
 }
+function adminPollAnnouncementsForResults(token, afterId, initialize) {
+  var v = adminValidateForResults(token);
+  if (!v || !v.ok) return v || {ok:false,message:'Phiên ADMIN không hợp lệ.'};
+  return examAnnouncementPoll_(String(token || ''), afterId, !!initialize);
+}
+
 function adminLogoutForResults(token) {
   return logout(String(token || ''));
 }
